@@ -233,7 +233,11 @@ class SampleView(QGraphicsView):
             
         #Ignore other keys...
             
-            
+    def mousePressEvent(self, event):
+        sceneCoords = self.mapToScene(event.pos())
+        bounds = self.crossHair.boundingRect()
+        self.crossHair.setPos(QPointF(sceneCoords.x()-bounds.width()/2, sceneCoords.y()-bounds.height()/2))
+
                 
             
 def main():
