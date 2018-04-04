@@ -36,7 +36,8 @@ class QDirection(QGraphicsItem):
         self.arrow.append(QPointF(50, 0))
         self.path = QPainterPath()
         self.path.addPolygon(self.arrow)
-
+        self.setTransformOriginPoint(QPointF(50,50))
+        
     def boundingRect(self):
         bounds = QRectF(40 - self.lineWidth / 2, 0 - self.lineWidth/2, 60 + self.lineWidth/2, 100+self.lineWidth/2)
         return bounds
@@ -50,7 +51,7 @@ class QDirection(QGraphicsItem):
         qp.setPen(self._pen)
         qp.drawPath(self.path)
 
-
+        #qp.drawRect(0,0,100,100)
 
        
         

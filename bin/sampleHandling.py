@@ -45,13 +45,17 @@ class SampleHandlingWidget(QWidget):
         self.setLayout(mainLayout)
         self.sampleView.setWindParams(self.windDir+90, self.windVel)
         self.score = 0.0
-
+        self.finalTime = None
+        
     def btnDone_keyPress(self, evt):
         if evt.key() == Qt.Key_Return:
-            self.parent().close()
+            self.btnDone_onclick()
         
     def btnDone_onclick(self):
-        self.parent().close()
+        if self.finalTime is None:
+            self.drawSamples()
+        else:
+            self.parent().close()
 
     def drawSamples(self):
         print 'Calculating score'
@@ -109,13 +113,16 @@ class SampleView(QGraphicsView):
         self._scene = self.scene()
         self.w = 500
         self.h = 500
-        self.windDir = QDirection(color=Qt.red)
+        self.windDir = QDirection(color=Qt.red, lineColor=Qt.darkRed)
         self._scene.addItem(self.windDir)
         dirBounds = self.windDir.boundingRect()
-        self.windDir.setTransformOriginPoint(QPointF(dirBounds.width() / 2, dirBounds.height() / 2))
         self.windDir.setScale(1.0)
-        
         self.windDir.setPos(QPointF(0,0))
+        #self.windDir.setTransformOriginPoint(QPointF(dirBounds.width() / 2, dirBounds.height() / 2))
+
+        #Draw a box around the wind direction:
+        self.windBox = self._scene.addRect(0,0,100,100, QPen(Qt.black), QBrush(Qt.transparent))
+        
 
         self.windVel = QGraphicsSimpleTextItem('Speed')
         
@@ -259,18 +266,19 @@ def main():
         startTime = rospy.Time.now()
         mainWindow.show()
         app.exec_()
-        
-        totalTime = sampleApp.finalTime - startTime #a Duration
-        print 'Publishing score:', sampleApp.score, ' duration:', totalTime.to_sec(), ' sec'
 
-        msg = SampleHandling()
-        msg.header.stamp = rospy.Time.now()
-        msg.windDir = sampleApp.windDirNoisy
-        msg.windVel = sampleApp.windVelNoisy
-        msg.score = sampleApp.score
-        msg.duration = totalTime.to_sec()
+        if not sampleApp.finalTime is None:
+            totalTime = sampleApp.finalTime - startTime #a Duration
+            print 'Publishing score:', sampleApp.score, ' duration:', totalTime.to_sec(), ' sec'
+            
+            msg = SampleHandling()
+            msg.header.stamp = rospy.Time.now()
+            msg.windDir = sampleApp.windDirNoisy
+            msg.windVel = sampleApp.windVelNoisy
+            msg.score = sampleApp.score
+            msg.duration = totalTime.to_sec()
 
-        samplePub.publish(msg)
+            samplePub.publish(msg)
         
 	sys.exit(0)
 
