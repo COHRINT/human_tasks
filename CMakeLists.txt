@@ -30,7 +30,7 @@ find_package(catkin REQUIRED COMPONENTS
 add_message_files(
   FILES
   SampleHandling.msg
-
+  Grasping.msg
 )
 
 ## Generate actions in the 'action' folder
