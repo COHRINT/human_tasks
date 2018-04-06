@@ -387,7 +387,7 @@ class GraspView(QGraphicsView):
         currentPos = self.gripper.pos()
         currentRot = self.gripper.rotation()
         
-        keyMove = 10
+        keyMove = 2
         keyRotate = 1
 
         candidateRot = self.gripper.rotation()
