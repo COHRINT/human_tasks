@@ -11,7 +11,7 @@ import numpy as np
 
 
 from PyQt5.QtWidgets import *
-from PyQt5.QtCore import QCoreApplication, Qt
+from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 
 from QDirection import *
@@ -297,7 +297,7 @@ class GraspView(QGraphicsView):
         #intersect in scene coords
         isect_path = objPath.intersected(gripLine_l)
         isect_path.setFillRule(Qt.WindingFill)
-        isect_all = isect_path.toFillPolygon()
+        isect_all = isect_path.toFillPolygon(QTransform())
 
         #Map back to the gripper's coord sys:
         isect_all = self.gripper.mapFromScene(isect_all)

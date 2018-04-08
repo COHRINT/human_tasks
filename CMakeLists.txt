@@ -31,6 +31,13 @@ add_message_files(
   FILES
   SampleHandling.msg
   Grasping.msg
+  AttentionTask.msg
+)
+add_service_files(
+  FILES
+  ChangeLambda.srv
+  GetCurrentLambda.srv
+
 )
 
 ## Generate actions in the 'action' folder
