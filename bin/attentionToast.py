@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/python2
 
 import sys
 import math
@@ -8,102 +8,118 @@ from human_tasks.msg import *
 from human_tasks.srv import *
 
 from PyQt5.QtWidgets import *
-from PyQt5.QtCore import QCoreApplication, Qt
+from PyQt5.QtCore import *
 from PyQt5.QtGui import *
-
+import numpy as np
 
 def signal_handler(signal, frame):
 		print 'You pressed Ctrl+C!'
 		sys.exit(0)
 		
 signal.signal(signal.SIGINT, signal_handler)
-class box(QMessageBox):
-	def __init__(self):
-		QMessageBox.__init__(self)
-		self.setSizeGripEnabled(True)
+class MBox(QMessageBox):
+    def __init__(self):
+        QMessageBox.__init__(self)
+        self.setSizeGripEnabled(True)
 
-	def event(self, e):
-		result = QMessageBox.event(self, e)
+    def event(self, e):
+        result = QMessageBox.event(self, e)
 
-		self.setMinimumHeight(150)
-		self.setMaximumHeight(16777215)
-		self.setMinimumWidth(250)
-		self.setMaximumWidth(16777215)
-		self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setMinimumHeight(150)
+        self.setMinimumWidth(250)
 
-		textEdit = self.findChild(QTextEdit)
-		if textEdit != None :
-			textEdit.setMinimumHeight(150)
-			textEdit.setMaximumHeight(16777215)
-			textEdit.setMinimumWidth(250)
-			textEdit.setMaximumWidth(16777215)
-			textEdit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        return result
 
-		return result
 class ParameterWindow(QWidget):
+    timer_expired = pyqtSignal()
+    box_closed = pyqtSignal()
+    duration = pyqtSignal()
 
-	def __init__(self):
-		super(QWidget,self).__init__()
-		self.initUI()
+    def __init__(self):
+	super(ParameterWindow,self).__init__()
+        rospy.init_node('attention_task')
+        
+        self.getLambda = rospy.Service('~GetLambda', GetCurrentLambda, self.get_lambda)
+        self.changeLambda = rospy.Service('~ChangeLambda', ChangeLambda, self.change_lambda)
 
-	def initUI(self):
-		rospy.init_node('attentionToast')
-		self.pub = rospy.Publisher('time_taken', AttentionTask, queue_size=10)
-		self.data_msg = AttentionTask()
+        self.beta = 2.0
 
-		self.getLambda = rospy.Service('~GetLambda', GetCurrentLambda, self.get_lambda)
-		#self.changeLambda = rospy.Service('~ChangeLambda', ChangeLambda, self.change_lambda)
+        self.timer_expired.connect(self.showToast)
+        self.duration.connect(self.open_duration)
+        self.box_closed.connect(self.publish_message)
 
-		self.msg = box()  	
-		self.msg.setText("Press OK to dismiss this message")
-		self.msg.setWindowTitle("Be Attentive")
+        self.setTimer()
+        
+    def showToast(self):
+        box = MBox()
+        box.setText('Congratulations! You are the 1000th visitor!')
 
-		self.msg.setStandardButtons(QMessageBox.Ok)
+        #Start timing
+        box.exec_()
+        self.duration.emit()
+        
+        #User closed the box, publish the time
+        self.box_closed.emit()
+        self.setTimer()
+        
+    def setTimer(self):
+        
+        #set the next timer
+        sleepTime = np.random.exponential(self.beta)
+        print 'Sleeping for:', sleepTime
+        self.sleepTimer = rospy.Timer(rospy.Duration(sleepTime), self.timerTick, oneshot = True)
 
-		self.submit = self.msg.exec_()
-		self.start = rospy.Time.now()
-		if self.submit == QMessageBox.Ok:
-			self.submit_data()
+    def timerTick(self, msg):
+        self.timer_expired.emit()
+        self.sleepTimer = None
 
-	def submit_data(self):
+    def open_duration(self):
+        self.start = rospy.Time.now()
 
-		self.data_msg.lambda_value = 6
-		#self.data_msg.duration = rospy.Time.now()-self.start
-		self.data_msg.header.stamp = rospy.Time.now()
-		self.pub.publish(self.data_msg)
+    def publish_message(self):
+        self.pub = rospy.Publisher('time_taken', AttentionTask, queue_size=10)
+        self.data_msg = AttentionTask()
 
 
-		rospy.sleep(3) #to be exponential, potentially implement a Timer here
-		self.msg.exec_()
-		self.start = rospy.Time.now()
-		if self.submit == QMessageBox.Ok:
-			self.submit_data()
+        self.data_msg.spent =  rospy.Time.now()-self.start
+        self.data_msg.header.stamp = rospy.Time.now()
+        self.data_msg.lambda_value = self.beta
 
-	def get_lambda(self):
-		try:
-			lambda1 = rospy.ServiceProxy('/attention_toast/GetLambda', GetCurrentLambda)
+        self.pub.publish(self.data_msg)
 
-			response = numpy.exponential(1/lambda1,1)
-			return response
-		except rospy.ServiceException, e:
-			print "Service call failed: %s"%e
+    def get_lambda(self,req):
+        resp = GetCurrentLambdaResponse()
+        resp.exp_param = self.beta
 
+        return resp
+
+    def change_lambda(self,req):
+        self.beta = req.change
+        print(req.change)
+        
 class Application(QApplication):
 	def event(self, e):
 		return QApplication.event(self, e)
+app = None
+shouldQuit = False
 
+def onSigint(signum, param):
+    sys.exit(0)
+    
 def main():     
 	app = Application(sys.argv)
 	coretools_app = ParameterWindow()
-	signal.signal(signal.SIGINT, lambda *a: app.quit())
+        shouldQuit = False
+	signal.signal(signal.SIGINT, onSigint)
 	app.startTimer(200)
-
-	sys.exit(app.exec_())
+        while not shouldQuit:
+            app.exec_()
+            
+        print 'App exec returned!'
+	sys.exit(0)
 
 if __name__ == '__main__':
 	try:
 		main()
 	except rospy.ROSInterruptException:
 		pass
-
-
