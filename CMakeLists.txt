@@ -37,7 +37,7 @@ add_service_files(
   FILES
   ChangeLambda.srv
   GetCurrentLambda.srv
-
+  SetWorkloadParams.srv
 )
 
 ## Generate actions in the 'action' folder
