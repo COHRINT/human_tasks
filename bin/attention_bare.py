@@ -13,8 +13,8 @@ from PyQt5.QtGui import *
 import numpy as np
 
 def signal_handler(signal, frame):
-		print 'You pressed Ctrl+C!'
-		sys.exit(0)
+    print 'You pressed Ctrl+C!'
+    sys.exit(0)
 		
 signal.signal(signal.SIGINT, signal_handler)
 
@@ -25,13 +25,13 @@ class ParameterWindow(QWidget):
 	super(ParameterWindow,self).__init__()
         rospy.init_node('attention_task')
         
-        self.beta = 1.0
+        self.beta = 10.0
         self.timer_expired.connect(self.showToast)
         self.setTimer()
         
     def showToast(self):
         box = QMessageBox()
-        box.setText('Message!')
+        box.setText('You are the 1000th test subject! Click to claim your prize')
 
         #Start timing
         box.exec_()
@@ -58,7 +58,7 @@ app = None
 shouldQuit = False
 
 def onSigint(signum, param):
-    app.quit()
+    sys.exit(0)
     
 def main():     
 	app = Application(sys.argv)

@@ -4,11 +4,12 @@ import sys
 import math
 import rospy
 import signal
+
 from human_tasks.msg import *
 from human_tasks.srv import *
 
 from PyQt5.QtWidgets import *
-from PyQt5.QtCore import QCoreApplication, Qt
+from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 
 

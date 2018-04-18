@@ -24,13 +24,13 @@ from human_tasks.msg import *
 #Main window area: Contains a QGraphicsView and some buttons
 class GraspingWidget(QWidget):
     def __init__(self, srcObject):
-        super(QWidget, self).__init__()
+        super(GraspingWidget, self).__init__()
         self.srcPolygon = srcObject
         self.initUI()
        
         
     def initUI(self):
-        rospy.init_node('grasping')
+
         self.setWindowTitle('Grasping')
         mainLayout = QVBoxLayout()
         self.graspView = GraspView(parent = self, obj=self.srcPolygon)
@@ -482,7 +482,7 @@ def loadObjects(fileName):
 
 
 def main():
-    
+        rospy.init_node('grasping')
         if len(sys.argv) > 1 and len(sys.argv) < 3:
                 print 'Usage:', sys.argv[0], ' <objects.csv> objectIndex'
                 print 'Please provide an objects file and an objectIndex'
@@ -502,7 +502,7 @@ def main():
             graspApp = GraspingWidget(None)    
 
 	
-
+            
         mainWindow = QMainWindow()
         mainWindow.setWindowTitle('Grasping')
         mainWindow.setCentralWidget(graspApp)
