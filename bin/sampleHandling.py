@@ -21,14 +21,24 @@ from human_tasks.msg import *
 
 #Main window area: Contains a QGraphicsView and some buttons
 class SampleHandlingWidget(QWidget):
-    def __init__(self, windDir, windVel):
+    scoringComplete = pyqtSignal()
+    reinitialize = pyqtSignal(float, float)
+    
+    def __init__(self):
         super(QWidget, self).__init__()
+        self.reinitialize.connect(self.initialize)
+        
+    def initialize(self, windDir, windVel):
+        print 'Initializing UI'
         self.windDir = windDir
         self.windVel = windVel
         self.initUI()
 
+        self.setVisible(True)
+        self.update()
+        
     def initUI(self):
-        rospy.init_node('sample_handling')
+
         self.setWindowTitle('Sample Handling')
         mainLayout = QVBoxLayout()
         self.sampleView = SampleView(parent = self)
@@ -55,7 +65,8 @@ class SampleHandlingWidget(QWidget):
         if self.finalTime is None:
             self.drawSamples()
         else:
-            self.parent().close()
+            self.scoringComplete.emit()
+            #self.parent().close()
 
     def drawSamples(self):
         print 'Calculating score'
@@ -89,7 +100,7 @@ class SampleHandlingWidget(QWidget):
         self.finalTime = rospy.Time.now()
         
         print 'User earned a score of:', self.score
-        self.parent().statusBar().showMessage('Earned score: %d%%' % (self.score*100))
+        #self.parent().statusBar().showMessage('Earned score: %d%%' % (self.score*100))
 
         '''
         mbox = QMessageBox()
@@ -254,6 +265,7 @@ def main():
                 sys.exit(-1)
                 
 	app = QApplication(sys.argv)
+        rospy.init_node('sample_handling')
 	sampleApp = SampleHandlingWidget(int(sys.argv[1]), float(sys.argv[2]))
 
         mainWindow = QMainWindow()

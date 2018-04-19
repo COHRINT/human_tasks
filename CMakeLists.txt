@@ -31,6 +31,7 @@ add_message_files(
   FILES
   SampleHandling.msg
   Grasping.msg
+  Navigation.msg
   AttentionTask.msg
 )
 add_service_files(
@@ -38,6 +39,9 @@ add_service_files(
   ChangeLambda.srv
   GetCurrentLambda.srv
   SetWorkloadParams.srv
+  RunNavTask.srv
+  RunGraspTask.srv
+  RunSampleTask.srv
 )
 
 ## Generate actions in the 'action' folder
@@ -50,6 +54,8 @@ add_service_files(
 ## Generate added messages and services with any dependencies listed here
 generate_messages(
   DEPENDENCIES
+  geometry_msgs
+  human_tasks
   std_msgs
 )
 

@@ -141,7 +141,7 @@ class TankView(QGraphicsView):
         
 
         #And some directions:
-        directions = QGraphicsSimpleTextItem('Press spacebar to open/close the valve')
+        directions = QGraphicsSimpleTextItem('Click to open/close the valve')
         directions.setFont(QFont("SansSerif", max(self.h / 60.0,12), QFont.Bold))
         self.scene().addItem(directions)
         dirBounds = directions.boundingRect()
@@ -172,16 +172,23 @@ class TankView(QGraphicsView):
         
     def mousePressEvent(self, event):
         #implement a mousing interface - translate and rotate
-        sceneCoords = self.mapToScene(event.pos())
-        print sceneCoords
-        
+        #sceneCoords = self.mapToScene(event.pos())
+        #print sceneCoords
+        if event.button() == Qt.LeftButton:
+            if self.valveState:
+                self.closeValve()
+            else:
+                self.openValve()
+                
     def keyPressEvent(self, event):
+        '''
         if event.key() == Qt.Key_Space:
             if self.valveState:
                 self.closeValve()
             else:
                 self.openValve()
-        elif event.key() == Qt.Key_R:
+        '''
+        if event.key() == Qt.Key_R:
             self.parent().printReport()
             
     def resizeEvent(self, evt=None):

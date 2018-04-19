@@ -6,7 +6,7 @@ import math
 import rospy
 import signal
 import time
-
+import pdb
 import numpy as np
 
 
@@ -23,17 +23,40 @@ from human_tasks.msg import *
 
 #Main window area: Contains a QGraphicsView and some buttons
 class GraspingWidget(QWidget):
+    scoringComplete = pyqtSignal()
+    reinitialize = pyqtSignal(QPolygonF)
+    
     def __init__(self, srcObject):
         super(GraspingWidget, self).__init__()
-        self.srcPolygon = srcObject
+        self.reinitialize.connect(self.initialize)
         self.initUI()
-       
+        
+    def initialize(self, srcObject):
+        #Recreate the UI for a new run
+        print 'Creating new scenario:'
+        if srcObject.count() == 0:
+            self.srcPolygon = None
+        else:
+            self.srcPolygon = srcObject
+            
+        
+        self.setVisible(True)
+
+        #Set the particular polygon in use:
+
+        self.graspView.newScenario(self.srcPolygon)
+
+        print 'View created for object:', self.srcPolygon
+        self.update()
+        
+        self.score = 0.0
+        self.finalTime = None
         
     def initUI(self):
 
         self.setWindowTitle('Grasping')
         mainLayout = QVBoxLayout()
-        self.graspView = GraspView(parent = self, obj=self.srcPolygon)
+        self.graspView = GraspView(parent = self)
         self.w = 500
         self.h = 500
         
@@ -46,8 +69,6 @@ class GraspingWidget(QWidget):
 
         self.setLayout(mainLayout)
         
-        self.score = 0.0
-        self.finalTime = None
         
     def btnDone_keyPress(self, evt):
         if evt.key() == Qt.Key_Return:
@@ -57,17 +78,18 @@ class GraspingWidget(QWidget):
         if self.finalTime is None:
             self.runScoring()
         else:
-            self.parent().close()
+            self.scoringComplete.emit()
+            #self.parent().close()
         
     def runScoring(self):
         self.finalTime = rospy.Time.now()
         self.score = self.graspView.getScore()
         self.graspView.setDisabled(True)
-        self.parent().statusBar().showMessage('Earned score: %d%%' % (self.score*100))
-        self.btnDone.setFocus(Qt.TabFocusReason)
+        #self.parent().statusBar().showMessage('Earned score: %d%%' % (self.score*100))
+        #self.btnDone.setFocus(Qt.TabFocusReason)
         
 class GraspView(QGraphicsView):
-    def __init__(self, parent=None, obj=None):
+    def __init__(self, parent=None):
         super(GraspView, self).__init__(parent=parent)
         self._parent = parent
 
@@ -85,25 +107,13 @@ class GraspView(QGraphicsView):
         self.robotArm.setRotation(-45)
         self._scene.addItem(self.robotArm)
 
-        
-        
+
         self.gripper = QGripper()
         self._scene.addItem(self.gripper)
         scale = 1
         self.gripper.setScale(scale)
         bounds = self.gripper.boundingRect()
         print 'Bounds:', bounds
-
-        #Since the center of the gripper isn't the center of the bounding box, this needs some help...
-        #curPos = self.gripper.getPivot()
-        gripperPos = QPointF(self.w/2, self.h/3)
-        self.gripper.setPos(gripperPos)
-
-        #Join the arm to the gripper:
-        armEndpoint = self.robotArm.mapToScene(QPointF(self.robotArm.boundingRect().width()/2, self.robotArm.boundingRect().height()))
-        offset = gripperPos - armEndpoint
-        self.robotArm.setPos(self.robotArm.pos() + offset)
-        
 
         #Draw in the ground..
         self.groundPath = QPainterPath()
@@ -121,10 +131,7 @@ class GraspView(QGraphicsView):
         self.groundItem.setBrush(groundBrush)
 
         #self.fitInView(0,0,self.w, self.h)
-
-        #Add an object to grasp:
-        self.srcPolygon = obj
-        self.addObjectPolygon(self.srcPolygon)
+        self.objItem = None
         self.isectItem = None
         self.polyCount = 0
         self.gripAreaItem = None
@@ -135,15 +142,50 @@ class GraspView(QGraphicsView):
         self._scene.addItem(directions)
         dirBounds = directions.boundingRect()
         directions.setPos(QPointF(self.w - dirBounds.width(), 0.0))
-        
-    def addObjectPolygon(self, obj):
-        self.gen = QPolygonGenerator()
-        objs = self.gen.getRandomPolygons(1, 10)
 
+    def newScenario(self, obj):
+        #Reset the gripper, etc with a new polygon
+        #Since the center of the gripper isn't the center of the bounding box, this needs some help...
+        #curPos = self.gripper.getPivot()
+
+        gripperPos = QPointF(self.w/2, self.h/3)
+        self.gripper.setPos(gripperPos)
+        self.gripper.setRotation(0)
+        
+        #Join the arm to the gripper:
+        armEndpoint = self.robotArm.mapToScene(QPointF(self.robotArm.boundingRect().width()/2, self.robotArm.boundingRect().height()))
+        offset = gripperPos - armEndpoint
+        self.robotArm.setPos(self.robotArm.pos() + offset)
+
+        #Remove old objects
+        if not self.isectItem is None:
+            self.scene().removeItem(self.isectItem)
+        self.polyCount = 0
+        if not self.gripAreaItem is None:
+            self.scene().removeItem(self.gripAreaItem)
+        if not self.objItem is None:
+            self.scene().removeItem(self.objItem)
+            
+        #Add an object to grasp:
+        self.srcPolygon = obj
+        self.addObjectPolygon(self.srcPolygon)
+
+        #Make sure the ui is enabled
+        self.setDisabled(False)
+        
+            
+    def addObjectPolygon(self, obj):
+        
         if not obj is None:
             self.objItem = QGraphicsPolygonItem(obj)
         else:
+            print 'Generating polygon'
+            self.gen = QPolygonGenerator()
+            objs = self.gen.getRandomPolygons(1, 10)
+          
+            print objs
             self.objItem = QGraphicsPolygonItem(objs[0])
+
         for index in range(0, self.objItem.polygon().count()):
             print 'x:', self.objItem.polygon().value(index).x(), ' y:', self.objItem.polygon().value(index).y()
 
@@ -155,7 +197,7 @@ class GraspView(QGraphicsView):
         objPen.setJoinStyle(Qt.MiterJoin)
         self.objItem.setPen(objPen)
         self.objItem.setScale(4)
-        self._scene.addItem(self.objItem)
+        self.scene().addItem(self.objItem)
 
         #Gradually increase the y coordinate until collision:
         #todo: add a rotation such that the object is at least sitting on a face instead of a vertex...
@@ -163,10 +205,15 @@ class GraspView(QGraphicsView):
         self.objItem.setPos(self.w/2, self.h/2)
 
         curPos = self.objItem.pos()
+
+    
         inCollision = False
+
         while not self.objItem.collidesWithItem(self.groundItem):
             curPos.setY(curPos.y() + 1)
             self.objItem.setPos(curPos)
+
+
 
         #There is at least one point in contact - find it:
         #print 'Finding contact point'
@@ -431,9 +478,9 @@ class GraspView(QGraphicsView):
     def mousePressEvent(self, event):
         #implement a mousing interface - translate and rotate
         sceneCoords = self.mapToScene(event.pos())
-        print 'Button:', event.button()
+        #print 'Button:', event.button()
         
-        
+        '''
         if event.button() == Qt.LeftButton:
             self._scene.removeItem(self.objItem)
             self.addObjectPolygon(self.srcPolygon)
@@ -448,14 +495,15 @@ class GraspView(QGraphicsView):
                 self._scene.removeItem(self.gripAreaItem)
                 
         elif event.button() == Qt.RightButton:
-            '''
+    
             print 'Polygon:',
             poly = self.objItem.polygon()
             for j in range(0, poly.count()):
                 print '(', poly.value(j).x(), ',', poly.value(j).y(), ') ',
-            '''
             print 'Score:', self.getScore()
-        elif event.button() == 8: #the little button closest to the battery indicator on my trackball
+        '''
+        
+        if event.button() == 8: #the little button closest to the battery indicator on my trackball
             #Save the polygon to a file to be loaded later
             self.polyCount += 1
             print 'Polygon count:', self.polyCount
@@ -467,7 +515,8 @@ class GraspView(QGraphicsView):
                 polyFile.write(',%1.2f, %1.2f' % (polygon.value(index).x(), polygon.value(index).y()))
             polyFile.write('\n')
             polyFile.close()
-            
+        
+        
 def loadObjects(fileName):
     #Load a set of polygons from a csv file
     csvFile = open(fileName, 'r')
