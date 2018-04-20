@@ -43,7 +43,7 @@ class ParameterWindow(QWidget):
         self.getLambda = rospy.Service('~GetLambda', GetCurrentLambda, self.get_lambda)
         self.changeLambda = rospy.Service('~ChangeLambda', ChangeLambda, self.change_lambda)
 
-        self.beta = 2.0
+        self.exp_parameter = 2.0
 
         self.timer_expired.connect(self.showToast)
         self.duration.connect(self.open_duration)
@@ -66,7 +66,7 @@ class ParameterWindow(QWidget):
     def setTimer(self):
         
         #set the next timer
-        sleepTime = np.random.exponential(self.beta)
+        sleepTime = np.random.exponential(1/self.exp_parameter)
         print 'Sleeping for:', sleepTime
         self.sleepTimer = rospy.Timer(rospy.Duration(sleepTime), self.timerTick, oneshot = True)
 
@@ -84,18 +84,18 @@ class ParameterWindow(QWidget):
 
         self.data_msg.spent =  rospy.Time.now()-self.start
         self.data_msg.header.stamp = rospy.Time.now()
-        self.data_msg.lambda_value = self.beta
+        self.data_msg.lambda_value = self.exp_parameter
 
         self.pub.publish(self.data_msg)
 
     def get_lambda(self,req):
         resp = GetCurrentLambdaResponse()
-        resp.exp_param = self.beta
+        resp.exp_param = self.exp_parameter
 
         return resp
 
     def change_lambda(self,req):
-        self.beta = req.change
+        self.exp_parameter = req.change
         print(req.change)
         
 class Application(QApplication):
