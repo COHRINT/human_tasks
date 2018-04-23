@@ -1,0 +1,6 @@
+uint16 windDir
+uint16 windVel
+---
+human_tasks/SampleHandling report
+time startTime
+time endTime

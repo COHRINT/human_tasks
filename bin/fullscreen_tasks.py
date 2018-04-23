@@ -6,8 +6,11 @@ from PyQt5.QtGui import *
 from PyQt5.QtCore import * 
 from PyQt5.QtWidgets import *
 from tank_task import TankWidget
+from attention_task import AttentionWidget
 from grasping import GraspingWidget
 from sampleHandling import SampleHandlingWidget
+from nav_task import NavTaskWidget
+
 from human_tasks.srv import *
 from human_tasks.msg import *
 
@@ -36,7 +39,7 @@ class ExperimentView(QSplitter):
             self.taskLayout.itemAt(index).widget().setVisible(False)
 
         #Fire a signal so that the grasp task touches UI in the GUI thread (we're in a ROS thread)
-        self.graspTask.reinitialize.emit(QPolygonF()) #replace this with a param from the scenario list
+        print 'Setting up polygon:', req.polygonID
         
 
         #Basic idea: Pause this thread - (started from ROS, so it's not under Qt or Python...
@@ -49,33 +52,55 @@ class ExperimentView(QSplitter):
 
         self.taskLock.lock()
         #print 'Sleeping in service call'
+        #Set up the preconditions:
+        startTime = rospy.Time.now()
+        self.graspTask.reinitialize.emit(QPolygonF()) #replace this with a param from the scenario list
+        
         self.taskCondition.wait(self.taskLock)
+        
         self.taskLock.unlock()
 
-        return RunGraspTaskResponse()
+        resp = RunGraspTaskResponse()
+        resp.report.header.stamp = rospy.Time.now()
+        resp.report.score = self.graspTask.score
+        totalTime = self.graspTask.finalTime - startTime
+        resp.report.duration = totalTime.to_sec()
+        resp.report.objectIndex = req.polygonID
+        resp.startTime = startTime
+        resp.endTime = self.graspTask.finalTime
+        return resp
 
     def svcSampleTask(self, req):
         #print 'Setting sample'
         for index in range(0, self.taskLayout.count()):
             self.taskLayout.itemAt(index).widget().setVisible(False)
 
-        #post a signal to the sampleTask telling it to re-initialize
-        self.sampleTask.reinitialize.emit(20,4)
-        
-
-
         self.taskLock.lock()
+        #post a signal to the sampleTask telling it to re-initialize
+        startTime = rospy.Time.now()
+        self.sampleTask.reinitialize.emit(req.windDir,req.windVel)
+        
         #print 'Sleeping in service call'
         self.taskCondition.wait(self.taskLock)
         self.taskLock.unlock()
-        return RunSampleTaskResponse()
+        resp = RunSampleTaskResponse()
+        totalTime = self.sampleTask.finalTime - startTime #A Duration
+        
+        resp.report.header.stamp = rospy.Time.now()
+        resp.report.score = self.sampleTask.score
+        resp.report.windDir = self.sampleTask.windDirNoisy
+        resp.report.windVel = self.sampleTask.windVelNoisy
+        resp.report.duration = totalTime.to_sec()
+        resp.startTime = startTime
+        resp.endTime = self.sampleTask.finalTime
+        return resp
 
     def svcNavTask(self, req):
         #print 'Setting nav:'
         for index in range(0, self.taskLayout.count()):
             self.taskLayout.itemAt(index).widget().setVisible(False)
 
-        #self.navTask.setVisible(True)
+        self.navTask.setVisible(True)
         self.taskLayout.update()
         self.taskLock.lock()
         #print 'Sleeping in service call'
@@ -91,34 +116,23 @@ class ExperimentView(QSplitter):
 
         self.btnQuit = qbtn
         self.tankTask = TankWidget()
+        self.attentionTask = AttentionWidget()
 
-        #self.fuelGauge.show()
         layout = QHBoxLayout()
 
-        #Control layout
-        ctlLayout = QVBoxLayout()
-
-        ctlLayout.addWidget(self.btnQuit)
-
-        self.btnSwitch = QPushButton('Swap tasks')
-        self.btnSwitch.clicked.connect(self.btnSwitch_onclick)
-        ctlLayout.addWidget(self.btnSwitch)
-
-        ctlWidget = QWidget()
-        ctlWidget.setLayout(ctlLayout)
 
         leftPane = QSplitter()
         leftPane.setOrientation(Qt.Vertical) #vertical stack...
-        leftPane.addWidget(ctlWidget)
+        leftPane.addWidget(self.btnQuit)
+        leftPane.addWidget(self.attentionTask)
         leftPane.addWidget(self.tankTask)
-        leftPane.setSizes((leftPane.height()/2, leftPane.height()/2)) 
+        leftPane.setSizes((leftPane.height()/3, leftPane.height()/3, leftPane.height()/3)) 
         #Disable the handles...
         leftPane.handle(1).setEnabled(False)
-
+        leftPane.handle(2).setEnabled(False)
+        
         self.setOrientation(Qt.Horizontal) #horiz stack
         self.addWidget(leftPane)
-
-
 
 
         #Create the task widgets - these will be created once, and then reset for each instantiation
@@ -131,11 +145,17 @@ class ExperimentView(QSplitter):
         #Hook into this task's completion signal
         self.graspTask.scoringComplete.connect(self.onTaskComplete)
 
+
+        self.navTask = NavTaskWidget()
+        self.navTask.setVisible(False)
+        self.navTask.scoringComplete.connect(self.onTaskComplete)
+        
         #To avoid having to resize the splitter, create a pane that we will fill on demand
         self.taskPane = QWidget()
         self.taskLayout = QVBoxLayout()
         self.taskLayout.addWidget(self.graspTask)
         self.taskLayout.addWidget(self.sampleTask)
+        self.taskLayout.addWidget(self.navTask)
 
         self.taskPane.setLayout(self.taskLayout)
 
