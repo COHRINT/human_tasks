@@ -12,12 +12,19 @@ from QLabeledValue import *
 from human_tasks.srv import *
 from human_tasks.msg import *
 import rospy
+from enum import Enum
+
+class CommCategory(Enum):
+    Low = 0
+    High = 1
 
 class AttentionWidget(QWidget):
     timer_expired = pyqtSignal()
     box_closed = pyqtSignal()
     duration = pyqtSignal()
-    messageSources = ['EVA 1', 'EVA 2', 'Infirmary', 'Greenhouse', 'Science Lab', 'Earth: CAPCOM', 'Earth: Physio', 'Earth: Science']
+    messageSources = ['EVA 1', 'EVA 2', 'Hab: Infirmary', 'Hab: Greenhouse',
+                      'Hab: Science Lab', 'Earth: CAPCOM', 'Earth: Physio',
+                      'Earth: Science']
     
     def __init__(self):
 	super(AttentionWidget,self).__init__()
@@ -35,12 +42,30 @@ class AttentionWidget(QWidget):
         self.commsGroup = QGroupBox('Communications')
         commsLayout = QVBoxLayout()
         self.commSource = QLabeledValue('Message from:')
-        self.btnCommAck = QPushButton('Dispatch')
-        self.btnCommAck.clicked.connect(self.btnCommAck_onclick)
-        self.btnCommAck.setEnabled(False)
-        
         commsLayout.addWidget(self.commSource)
-        commsLayout.addWidget(self.btnCommAck)
+
+        self.lcdTime = QLabeledValue('Elapsed Time:')
+        self.lcdTime.updateValue(0)
+        self.lcdTimer = QTimer()
+        self.lcdTimer.timeout.connect(self.incrementLCD)
+
+        commsLayout.addWidget(self.lcdTime)
+        
+        self.btnCommLow = QPushButton('Low')
+        self.btnCommLow.clicked.connect(self.btnCommLow_onclick)
+        self.btnCommLow.setEnabled(False)
+        
+        self.btnCommHigh = QPushButton('High')
+        self.btnCommHigh.clicked.connect(self.btnCommHigh_onclick)
+        self.btnCommHigh.setEnabled(False)
+        
+
+
+        commCatLayout = QHBoxLayout()
+        commCatLayout.addWidget(self.btnCommLow)
+        commCatLayout.addWidget(self.btnCommHigh)
+
+        commsLayout.addLayout(commCatLayout)
 
         self.commsGroup.setLayout(commsLayout)
 
@@ -54,23 +79,47 @@ class AttentionWidget(QWidget):
         sleepTime = np.random.exponential(self.exp_parameter)
         #print 'Sleeping for:', sleepTime
         self.sleepTimer = QTimer.singleShot(sleepTime*1000, self.timer_expired)
+
+    def incrementLCD(self):
+        baseTime = int(self.lcdTime.getValue())
+        if baseTime >= 9:
+            self.lcdTime.setStylesheet('color:red; font-weight: bold')
+        self.lcdTime.updateValue(baseTime + 1)
+        
         
     def showNewMessage(self):
         src = np.random.choice(self.messageSources)
         self.commSource.updateValue(src)
-        self.btnCommAck.setEnabled(True)
+        self.btnCommLow.setEnabled(True)
+        self.btnCommHigh.setEnabled(True)
         self.startTime = rospy.Time.now()
         
-    def btnCommAck_onclick(self):
-        #print 'Acknowledging comm'
+        self.lcdTimer.start(1000)
+
+    def commReport(self, category):
         msg = AttentionTask()
-        msg.spent =  rospy.Time.now()-self.startTime
+        msg.spent =  rospy.Time.now() - self.startTime
         msg.lambda_value = self.exp_parameter
+        msg.msgSrc = self.commSource.getValue()
+        msg.category = category.value
+        
         self.attentionPub.publish(msg)
         
         self.commSource.updateValue('')
-        self.btnCommAck.setEnabled(False)
+        self.lcdTime.updateValue(0)
+        self.lcdTime.setStylesheet('')
+        self.lcdTimer.stop()
+        
+        self.btnCommLow.setEnabled(False)
+        self.btnCommHigh.setEnabled(False)
         self.setTimer()
+        
+    def btnCommLow_onclick(self):
+        self.commReport(CommCategory.Low)
+        
+    def btnCommHigh_onclick(self):
+        self.commReport(CommCategory.High)
+
         
     def get_lambda(self,req):
         resp = GetCurrentLambdaResponse()
@@ -79,7 +128,8 @@ class AttentionWidget(QWidget):
 
     def change_lambda(self,req):
         self.exp_parameter = req.change
-        print(req.change)
+        #print(req.change)
+        return []
 
 def main():     
 	app = QApplication(sys.argv)
