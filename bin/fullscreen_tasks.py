@@ -10,6 +10,7 @@ from attention_task import AttentionWidget
 from grasping import GraspingWidget
 from sampleHandling import SampleHandlingWidget
 from nav_task import NavTaskWidget
+from QLabeledValue import *
 
 from human_tasks.srv import *
 from human_tasks.msg import *
@@ -110,11 +111,32 @@ class ExperimentView(QSplitter):
 
 
     def initUI(self):
-        qbtn = QPushButton('Quit')
-        qbtn.clicked.connect(self.btnQuit_onclick)
 
+        expControl = QGroupBox('Experiment Control')
+        self.expProgressLabel = QLabeledValue('Task')
+        self.scenarioTotalLabel = QLabeledValue('of')
+        progressLayout = QHBoxLayout()
+        progressLayout.addWidget(self.expProgressLabel)
+        progressLayout.addWidget(self.scenarioTotalLabel)
+        self.btnPause = QPushButton('Pause')
+        self.btnPause.clicked.connect(self.btnPause_onclick)
+        self.btnPause.setCheckable(True)
+        
+        self.btnQuit = QPushButton('Quit')
+        self.btnQuit.clicked.connect(self.btnQuit_onclick)
 
-        self.btnQuit = qbtn
+        expControlLayout = QVBoxLayout()
+        #expControlLayout.addWidget(QLabel('Correlating Human Physiological Responses\n to Task Performance in a Simulated \nSpace Exploration Environment'))
+        #expControlLayout.addWidget(QLabel('IRB Protocol 17-0485'))
+                                   
+        expControlLayout.addLayout(progressLayout)
+        expControlLayout.addWidget(self.btnPause)
+        expControlLayout.addWidget(self.btnQuit)
+
+        expControl.setLayout(expControlLayout)
+        expGroupLayout = QVBoxLayout()
+        expGroupLayout.addWidget(expControl)
+
         self.tankTask = TankWidget()
         self.attentionTask = AttentionWidget()
 
@@ -123,10 +145,12 @@ class ExperimentView(QSplitter):
 
         leftPane = QSplitter()
         leftPane.setOrientation(Qt.Vertical) #vertical stack...
-        leftPane.addWidget(self.btnQuit)
+        leftPane.addWidget(expControl)
         leftPane.addWidget(self.attentionTask)
         leftPane.addWidget(self.tankTask)
-        leftPane.setSizes((leftPane.height()/3, leftPane.height()/3, leftPane.height()/3)) 
+        leftPane.setSizes((leftPane.height()/3, leftPane.height()/6, leftPane.height()/3))
+
+        
         #Disable the handles...
         leftPane.handle(1).setEnabled(False)
         leftPane.handle(2).setEnabled(False)
@@ -166,7 +190,15 @@ class ExperimentView(QSplitter):
         self.setSizes((self.width()/4, self.width()*3/4))
         self.showFullScreen()
 
-
+    def btnPause_onclick(self, evt):
+        #Pause the experiment, including the attention / tank tasks, etc
+        if self.btnPause.isChecked():
+            print 'Pausing'
+            self.attentionTask.pause()
+        else:
+            print 'Resuming'
+            self.attentionTask.resume()
+            
     def btnQuit_onclick(self, evt):
         print 'Closing'
         self.close()

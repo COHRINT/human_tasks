@@ -33,7 +33,7 @@ class AttentionWidget(QWidget):
         self.changeLambda = rospy.Service('~SetAttentionLambda', ChangeLambda, self.change_lambda)
         self.attentionPub = rospy.Publisher('attention', AttentionTask, queue_size=10)
         
-        self.exp_parameter = 10.0
+        self.exp_parameter = 5.0
         self.timer_expired.connect(self.showNewMessage)
         
         #self.duration.connect(self.open_duration)
@@ -72,15 +72,34 @@ class AttentionWidget(QWidget):
         masterLayout = QVBoxLayout()
         masterLayout.addWidget(self.commsGroup)
         self.setLayout(masterLayout)
+        self.sleepTimer = QTimer()
+        self.sleepTimer.setSingleShot(True)
+        self.sleepTimer.timeout.connect(self.timer_expired)
         self.setTimer()
         
     def setTimer(self):
         #set the next timer
         sleepTime = np.random.exponential(self.exp_parameter)
         #print 'Sleeping for:', sleepTime
-        self.sleepTimer = QTimer.singleShot(sleepTime*1000, self.timer_expired)
+
+        self.sleepTimer.start(sleepTime*1000)
+
+    def pause(self):
+        #if a message is showing, pause the message timer
+        #else, pause the sleepTimer
+        self.sleepTimer.stop() #memorylessness, we can just start it up again anew
+        self.paused = True
+
+    def resume(self):
+        self.paused = False
+        self.setTimer()
 
     def incrementLCD(self):
+        #Are we resuming?
+        if self.lcdTimer.isSingleShot():
+            self.lcdTimer.setSingleShot(False)
+            self.lcdTimer.start(1000)
+            
         baseTime = int(self.lcdTime.getValue())
         if baseTime >= 9:
             self.lcdTime.setStylesheet('color:red; font-weight: bold')
@@ -112,7 +131,8 @@ class AttentionWidget(QWidget):
         
         self.btnCommLow.setEnabled(False)
         self.btnCommHigh.setEnabled(False)
-        self.setTimer()
+        if not self.paused:
+            self.setTimer()
         
     def btnCommLow_onclick(self):
         self.commReport(CommCategory.Low)
