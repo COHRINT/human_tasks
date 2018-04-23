@@ -34,3 +34,12 @@ class QLabeledValue(QWidget):
             self.value.setText('%1.2f' % value)
         else:
             self.value.setText(str(value))
+            
+    def getValue(self):
+        return self.value.text()
+
+    def getStylesheet(self):
+        return self.value.stylesheet()
+
+    def setStylesheet(self, style):
+        self.value.setStyleSheet(style)
