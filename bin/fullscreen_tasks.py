@@ -195,22 +195,16 @@ class ExperimentView(QSplitter):
         if self.btnPause.isChecked():
             print 'Pausing'
             self.attentionTask.pause()
+            self.tankTask.pause()
         else:
             print 'Resuming'
             self.attentionTask.resume()
+            self.tankTask.resume()
             
     def btnQuit_onclick(self, evt):
         print 'Closing'
         self.close()
 
-    def btnSwitch_onclick(self, evt):
-        print 'Switching tasks'
-
-        self.taskLayout.addWidget(self.sampleTask)
-        self.taskLayout.removeWidget(self.graspTask)
-
-        #print 'Sizes:', self.sizes()
-        #self.setSizes((self.width()/4, self.width()*3/4))
 def main():
         app = QApplication(sys.argv)
         rospy.init_node('experiment_ui')

@@ -70,7 +70,12 @@ class TankWidget(QWidget):
             if np.random.uniform() < self.pClose:
                 print 'Closing valve randomly'
                 self.tankView.closeValve()
-                
+    def pause(self):
+        self.stop()
+
+    def resume(self):
+        self.start()
+        
     def stop(self):
         self.timer.stop()
 
