@@ -30,6 +30,6 @@ class RobotWidget(QGraphicsSimpleTextItem):
     def paint(self, qp, options, widget):
         if self._selected:
             qp.setBrush(QBrush(self._color)) #light transparent version of the text color
-            qp.drawRect(0,1,2,2)
+            qp.drawRect(self.boundingRect())
             
         QGraphicsSimpleTextItem.paint(self,qp, options, widget)
