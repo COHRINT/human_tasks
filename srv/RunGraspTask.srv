@@ -1,5 +1,5 @@
-uint16 polygonID
+int16 objectIndex
+float32[] polygonX
+float32[] polygonY
 ---
 human_tasks/Grasping report
-time startTime
-time endTime

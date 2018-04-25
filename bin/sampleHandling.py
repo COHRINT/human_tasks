@@ -27,14 +27,21 @@ class SampleHandlingWidget(QWidget):
     def __init__(self):
         super(QWidget, self).__init__()
         self.reinitialize.connect(self.initialize)
+        #Create the layout once
+        self.initUI()
         
     def initialize(self, windDir, windVel):
         print 'Initializing UI'
         self.windDir = windDir
         self.windVel = windVel
-        self.initUI()
 
         self.setVisible(True)
+        self.windDir = windDir
+        self.windVel = windVel
+        self.sampleView.setWindParams(self.windDir+90, self.windVel)
+        self.score = 0.0
+        self.finalTime = None
+        
         self.update()
         
     def initUI(self):
@@ -46,17 +53,14 @@ class SampleHandlingWidget(QWidget):
         self.h = 500
         
         mainLayout.addWidget(self.sampleView)
-        self.btnDone = QPushButton('Done')
+        self.btnDone = QPushButton('Get Score')
         self.btnDone.clicked.connect(self.btnDone_onclick)
         self.btnDone.keyPressEvent = self.btnDone_keyPress
         
         mainLayout.addWidget(self.btnDone)
 
         self.setLayout(mainLayout)
-        self.sampleView.setWindParams(self.windDir+90, self.windVel)
-        self.score = 0.0
-        self.finalTime = None
-        
+                
     def btnDone_keyPress(self, evt):
         if evt.key() == Qt.Key_Return:
             self.btnDone_onclick()
@@ -64,8 +68,12 @@ class SampleHandlingWidget(QWidget):
     def btnDone_onclick(self):
         if self.finalTime is None:
             self.drawSamples()
+            self.btnDone.setText('Next Task')
         else:
             self.scoringComplete.emit()
+
+            #Reset the button for next time
+            self.btnDone.setText('Get Score')
             #self.parent().close()
 
     def drawSamples(self):
@@ -100,20 +108,12 @@ class SampleHandlingWidget(QWidget):
         self.finalTime = rospy.Time.now()
         
         print 'User earned a score of:', self.score
-        #self.parent().statusBar().showMessage('Earned score: %d%%' % (self.score*100))
-
-        '''
-        mbox = QMessageBox()
-        mbox.setWindowTitle('Sample Handling')
-        mbox.setText('Task complete!')
-        mbox.setInformativeText('Earned score: %d%%' % (self.score*100))
-        mbox.setStandardButtons(QMessageBox.Ok)
-        mbox.setIcon(QMessageBox.Information)
-        mbox.exec_()
-        '''
         
         self.sampleView.setDisabled(True)
         self.btnDone.setFocus(Qt.TabFocusReason)
+
+        #Let the service call know that we're done
+        
         
 class SampleView(QGraphicsView):
     def __init__(self, parent=None):
@@ -224,6 +224,17 @@ class SampleView(QGraphicsView):
         dirBounds = self.windDir.boundingRect()
         #center the label
         self.windVel.setPos(QPointF(dirBounds.left() + dirBounds.width()/2 - velBounds.width()/2, dirBounds.top()+dirBounds.height()))
+
+        #Reset the crosshair
+        bounds = self.crossHair.boundingRect()
+        self.crossHair.setPos(QPointF(self.w/2-bounds.width()/2, self.h/2-bounds.height()/2))
+
+        #Remove any samples
+        for samp in self.samples:
+            self.scene().removeItem(samp)
+        self.samples = [] #let them get GCed
+        
+        self.setDisabled(False)
         
     def resizeEvent(self, evt=None):
         #Resize map to fill window
@@ -246,7 +257,7 @@ class SampleView(QGraphicsView):
         elif event.key() == Qt.Key_Right:
             self.crossHair.setPos(QPointF(currentPos.x()+keyMove, currentPos.y()))
         elif event.key() == Qt.Key_Space:
-            self.parent().drawSamples()
+            self.parent().btnDone_onclick()
 
             
         #Ignore other keys...

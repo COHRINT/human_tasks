@@ -131,6 +131,8 @@ class NavTaskWidget(QSplitter):
         lowerLeftGroup.addWidget(goalRangeGroup)
 
         controlsGroup = QGroupBox('Robot Controls')
+        controlsGroup.keyPressEvent = self.keyPressEvent
+        
         controlsLayout = QVBoxLayout()
         self.linVelSlider = QLabeledSlider('Linear Velocity', -50, 50, 0)
         self.angVelSlider = QLabeledSlider('Angular Velocity', -20, 20, 0)
@@ -161,17 +163,21 @@ class NavTaskWidget(QSplitter):
         self.twist_pub = rospy.Publisher('cmd_vel', Twist, queue_size=10)
 
 
-        #Resize the splitter thing
-        self.setSizes([self.height()*0.77, self.height()*0.20, self.height()*0.023])
-        #Disable the sizer handles
-        #self.handle(1).setEnabled(False)
-        #self.handle(2).setEnabled(False)
+        
         
         self.stateQueue = deque() #Queue() #to handle high volume state updates from bag playback
         
         map(self.robot_state_changed.connect, [self.updateRobotState])
 
     def initialize(self, start, goal):
+        #Resize the splitter thing
+        self.setSizes([self.height()*0.75, self.height()*0.20, self.height()*0.023])
+
+        #self.setSizes([767, 262, 25])
+        #Disable the sizer handles
+        #self.handle(1).setEnabled(False)
+        #self.handle(2).setEnabled(False)
+        
         #Teleport the robot to the start position
         self.setRobotPosition((start.position.x, start.position.y, start.position.z), start.orientation)
 
@@ -185,13 +191,17 @@ class NavTaskWidget(QSplitter):
         self.map_view.addGoal('*', goal.position.x, goal.position.y)
         #self.map_view.goalVisible[itemKey] = True
         
+        self.score = None
+        
+        self.btnDone.setFocus()
+        self.grabKeyboard()
         
     def resumePhysics(self):
          try:
-            pause_physics = rospy.ServiceProxy(self.gazeboNamespace+'/unpause_physics', std_srvs.srv.Empty)
-            rospy.loginfo("Calling service %s/pause_physics" % self.gazeboNamespace)
+            unpause_physics = rospy.ServiceProxy(self.gazeboNamespace+'/unpause_physics', std_srvs.srv.Empty)
+            rospy.loginfo("Calling service %s/unpause_physics" % self.gazeboNamespace)
                         
-            resp = pause_physics(std_srvs.srv.EmptyRequest())
+            resp = unpause_physics(std_srvs.srv.EmptyRequest())
             return 
          except rospy.ServiceException, e:
             print "Service call failed: %s"%e
@@ -238,6 +248,8 @@ class NavTaskWidget(QSplitter):
         self.twist_pub.publish(msg)
         
     def btnDone_onclick(self):
+        self.releaseKeyboard()
+        
         if self.score is None:
             #Stop the robot
             msg = Twist()
@@ -352,7 +364,8 @@ class NavTaskWidget(QSplitter):
             self.odom_sub.unregister()
             
     def mousePressEvent(self, evt):
-        print 'Sizes:', self.sizes()
+        #print 'Sizes:', self.sizes()
+        pass
 
     def keyPressEvent(self, evt):
         evt.accept()

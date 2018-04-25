@@ -36,6 +36,7 @@ class QLabeledSlider(QWidget):
         self.lblValue.setText('%1.1f' % initVal)
         self.lblValue.setAlignment(Qt.AlignCenter)
         self.lblValue.setStyleSheet('font-weight:bold')
+        self.lblValue.keyPressEvent = self.keyPressEvent
         
         self.layout = QVBoxLayout()
         #self.label.setContentsMargins(-1, 0, -1, 0)
@@ -44,7 +45,7 @@ class QLabeledSlider(QWidget):
         self.btnZero = QPushButton('Set to 0.0')
         self.btnZero.clicked.connect(self.btnZero_onclick)
         self.btnZero.setMaximumWidth(100)
-        
+        self.btnZero.keyPressEvent = self.btnZero_keyPressEvent
 
         self.layout.addWidget(self.label)
         self.layout.addWidget(self.value)
@@ -80,7 +81,12 @@ class QLabeledSlider(QWidget):
         else:
             self.value.setText(str(value))
         '''
-        
+    def btnZero_keyPressEvent(self, evt):
+        if evt.key() == Qt.Key_Return:
+            self.btnZero_onclick()
+        else:
+            evt.ignore()
+            
     def keyPressEvent(self, evt):
         evt.ignore()
         

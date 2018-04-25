@@ -42,6 +42,8 @@ add_service_files(
   RunNavTask.srv
   RunGraspTask.srv
   RunSampleTask.srv
+  SetUIState.srv
+  SetProgress.srv
 )
 
 ## Generate actions in the 'action' folder

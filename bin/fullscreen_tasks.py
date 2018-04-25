@@ -18,31 +18,75 @@ from human_tasks.msg import *
 import rospy
 
 class ExperimentView(QSplitter):
+    visibilityChanged = pyqtSignal(bool)
+    progressChanged = pyqtSignal(int, int)
+    
     def __init__(self, parent=None):
         super(ExperimentView, self).__init__(parent)
+        print 'Starting subject UI'
         self.initUI()
         self.startServices()
         self.taskLock = QMutex()
         self.taskCondition = QWaitCondition()
-    
+        self.visibilityChanged.connect(self.onVisibilityChanged)
+        self.progressChanged.connect(self.onProgressChanged)
+        
     def startServices(self):
         self.graspSvc = rospy.Service('~tasks/grasp_task', RunGraspTask, self.svcGraspTask)
         self.sampleSvc = rospy.Service('~tasks/sample_task', RunSampleTask, self.svcSampleTask)
         self.navSvc = rospy.Service('~tasks/nav_task', RunNavTask, self.svcNavTask)
+        self.stateSvc = rospy.Service('~set_visibility', SetUIState, self.svcUIState)
+        self.progressSvc = rospy.Service('~set_progress', SetProgress, self.svcProgress)
         
     def onTaskComplete(self):
         print 'Waking up service call'
-        self.taskCondition.wakeOne()
-            
+        self.taskCondition.wakeOne() 
+        
+    def svcUIState(self, req):
+        print 'Setting UI state:', req.visible
+        self.visibilityChanged.emit(req.visible)
+        return SetUIStateResponse()
+
+    def onProgressChanged(self, current, total):
+        self.expProgressLabel.updateValue(str(current))
+        self.scenarioTotalLabel.updateValue(str(total))
+        
+    def onVisibilityChanged(self, visible):
+        if visible:
+            #Show widgets
+            for index in range(0, self.count()):
+                self.widget(index).setVisible(True)
+            self.contactExp.setVisible(False)
+            print 'Resuming'
+            self.attentionTask.resume()
+            self.tankTask.resume()
+        else:
+            #Hide the widgets and such
+            for index in range(0, self.count()):
+                self.widget(index).setVisible(False)
+
+            #Show the Done message
+            self.contactExp.setVisible(True)
+            print 'Pausing'
+            self.attentionTask.pause()
+            self.tankTask.pause()
+
+    def svcProgress(self, req):
+        self.progressChanged.emit(req.current, req.total)
+        return SetProgressResponse()
+    
     def svcGraspTask(self, req):
         #print 'Setting grasp'
         for index in range(0, self.taskLayout.count()):
             self.taskLayout.itemAt(index).widget().setVisible(False)
 
         #Fire a signal so that the grasp task touches UI in the GUI thread (we're in a ROS thread)
-        print 'Setting up polygon:', req.polygonID
+        print 'Setting up polygon:', req.objectIndex
         
-
+        obj = QPolygonF()
+        for vertIndex in range(0, len(req.polygonX)):
+            obj.append(QPointF(req.polygonX[vertIndex], req.polygonY[vertIndex]))
+            
         #Basic idea: Pause this thread - (started from ROS, so it's not under Qt or Python...
         #, starting another loop to service the task.
         #When the task is done, it will emit a signal to wake based on the condvar
@@ -55,7 +99,7 @@ class ExperimentView(QSplitter):
         #print 'Sleeping in service call'
         #Set up the preconditions:
         startTime = rospy.Time.now()
-        self.graspTask.reinitialize.emit(QPolygonF()) #replace this with a param from the scenario list
+        self.graspTask.reinitialize.emit(obj) #replace this with a param from the scenario list
         
         self.taskCondition.wait(self.taskLock)
         
@@ -66,9 +110,9 @@ class ExperimentView(QSplitter):
         resp.report.score = self.graspTask.score
         totalTime = self.graspTask.finalTime - startTime
         resp.report.duration = totalTime.to_sec()
-        resp.report.objectIndex = req.polygonID
-        resp.startTime = startTime
-        resp.endTime = self.graspTask.finalTime
+        resp.report.objectIndex = req.objectIndex
+        resp.report.startTime = startTime
+        resp.report.endTime = self.graspTask.finalTime
         return resp
 
     def svcSampleTask(self, req):
@@ -121,8 +165,8 @@ class ExperimentView(QSplitter):
         resp.report.start = req.start
         resp.report.goal = req.goal
         resp.report.duration = totalTime.to_sec()
-        resp.startTime = startTime
-        resp.endTime = self.navTask.finalTime
+        resp.report.startTime = startTime
+        resp.report.endTime = self.navTask.finalTime
         return resp
 
 
@@ -203,7 +247,20 @@ class ExperimentView(QSplitter):
         #Disable the sizer handle
         self.handle(1).setEnabled(False)
 
-        self.setSizes((self.width()/4, self.width()*3/4))
+        self.setSizes((self.width()/4, self.width()*3/4, 0))
+
+        self.contactExp = QLabel('Please contact the experimenter')
+        self.contactExp.setStyleSheet('font-weight: bold; font-size:40pt')
+        self.contactExp.setAlignment(Qt.AlignCenter)
+        self.addWidget(self.contactExp)
+        
+        for index in range(0, self.count()):
+            self.widget(index).setVisible(False)
+        
+        self.contactExp.setVisible(True)
+        print 'Pausing'
+        self.attentionTask.pause()
+        self.tankTask.pause()
         self.showFullScreen()
 
     def btnPause_onclick(self, evt):

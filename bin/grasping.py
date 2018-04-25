@@ -46,11 +46,12 @@ class GraspingWidget(QWidget):
 
         self.graspView.newScenario(self.srcPolygon)
 
-        print 'View created for object:', self.srcPolygon
         self.update()
         
         self.score = 0.0
+        self.startTime = rospy.Time.now()
         self.finalTime = None
+        self.graspView.grabKeyboard()
         
     def initUI(self):
 
@@ -61,12 +62,14 @@ class GraspingWidget(QWidget):
         self.h = 500
         
         mainLayout.addWidget(self.graspView)
-        self.btnDone = QPushButton('Done')
+        self.btnDone = QPushButton('Get Score')
         self.btnDone.clicked.connect(self.btnDone_onclick)
         self.btnDone.keyPressEvent = self.btnDone_keyPress
         
         mainLayout.addWidget(self.btnDone)
 
+        #Since you can only set layout once and I don't know how to delete() something in Python...
+        #Create all the elements once, and then rearrange them every task cycle
         self.setLayout(mainLayout)
         
         
@@ -75,10 +78,16 @@ class GraspingWidget(QWidget):
             self.btnDone_onclick()
         
     def btnDone_onclick(self):
+        self.graspView.releaseKeyboard()
         if self.finalTime is None:
             self.runScoring()
+            elapsedTime = self.finalTime - self.startTime
+            self.btnDone.setText('Score: %1.2f, Time: %1.1f sec: Get Next Task' %
+                                 (self.score, elapsedTime.to_sec()))
         else:
             self.scoringComplete.emit()
+            #Reset the button for next round
+            self.btnDone.setText('Get Score')
             #self.parent().close()
         
     def runScoring(self):
@@ -453,9 +462,9 @@ class GraspView(QGraphicsView):
         elif event.key() == Qt.Key_Right:
             candidatePos.setX(candidatePos.x() + keyMove)
         elif event.key() == Qt.Key_Space:
-            self.parent().runScoring()
+            self.parent().btnDone_onclick()
         elif event.key() == Qt.Key_Return:
-            self.parent().runScoring()
+            self.parent().btnDone_onclick()
             
             #Ignore other keys...
 
