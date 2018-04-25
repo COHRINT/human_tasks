@@ -76,6 +76,7 @@ class AttentionWidget(QWidget):
         self.sleepTimer.setSingleShot(True)
         self.sleepTimer.timeout.connect(self.timer_expired)
         self.setTimer()
+        self.paused = False
         
     def setTimer(self):
         #set the next timer
