@@ -105,9 +105,25 @@ class ExperimentView(QSplitter):
         self.taskLayout.update()
         self.taskLock.lock()
         #print 'Sleeping in service call'
+
+        startTime = rospy.Time.now()
+        #print 'Request:', req
+        #print 'Posting goal:', req.goal
+        self.navTask.reinitialize.emit(req.start, req.goal)
+        
         self.taskCondition.wait(self.taskLock)
         self.taskLock.unlock()
-        return RunNavTaskResponse()
+        resp = RunNavTaskResponse()
+        totalTime = self.navTask.finalTime - startTime #A Duration
+        
+        resp.report.header.stamp = rospy.Time.now()
+        resp.report.score = self.navTask.score
+        resp.report.start = req.start
+        resp.report.goal = req.goal
+        resp.report.duration = totalTime.to_sec()
+        resp.startTime = startTime
+        resp.endTime = self.navTask.finalTime
+        return resp
 
 
     def initUI(self):
