@@ -16,6 +16,10 @@ from nav_msgs.msg import *
 
 from human_tasks.msg import *
 from human_tasks.srv import *
+from gazebo_msgs.msg import *
+from gazebo_msgs.srv import *
+
+import std_srvs.srv
 
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
@@ -43,21 +47,27 @@ import pdb
 
 class NavTaskWidget(QSplitter):
     scoringComplete = Signal()
+    reinitialize = pyqtSignal(Pose, Pose)
     robot_state_changed = Signal()
     goal_changed = Signal()
     goalList_changed = Signal(str)
     
-    def __init__(self, map_topic='/map', cam_topic = '/image_raw'):
+    def __init__(self, terrain_topic='/terrain', cam_topic = '/image_raw',
+                 gazebo_namespace='/gazebo', modelName = 'robot0'):
         super(NavTaskWidget, self).__init__()
-        self.initUI(map_topic, cam_topic)
-
-    def initUI(self, map_topic, cam_topic):
+        self.gazeboNamespace = gazebo_namespace
+        self.modelName = modelName
+        self.initUI(terrain_topic, cam_topic)
+        self.reinitialize.connect(self.initialize)
+        self.score = None
+        
+    def initUI(self, terrain_topic, cam_topic):
         
         self.setWindowTitle('Navigation Task')
         
         vNavLayout = QVBoxLayout()
      
-        self.map_view = DEMView(map_topic, parent = self)
+        self.map_view = TerrainView(terrain_topic, parent = self)
         self.cam_view = CamView(cam_topic)
         self.btnDone = QPushButton('Get Score')
         self.btnDone.clicked.connect(self.btnDone_onclick)
@@ -65,38 +75,52 @@ class NavTaskWidget(QSplitter):
 
         self.setOrientation(Qt.Vertical)
         upperHalf = QHBoxLayout()
+
+        camViewGroup = QGroupBox('Camera View')
+        camViewLayout = QVBoxLayout()
+        camViewLayout.addWidget(self.cam_view)
+        camViewGroup.setLayout(camViewLayout)
         
-        upperHalf.addWidget(self.cam_view)
-        upperHalf.addWidget(self.map_view)
+        upperHalf.addWidget(camViewGroup)
+
+        mapViewGroup = QGroupBox('Overhead View')
+        mapViewLayout = QVBoxLayout()
+        mapViewLayout.addWidget(self.map_view)
+        mapViewGroup.setLayout(mapViewLayout)
+        
+        upperHalf.addWidget(mapViewGroup)
+        
         upperWidget = QWidget()
         upperWidget.setLayout(upperHalf)
         self.addWidget(upperWidget)
 
         hNavLayout = QHBoxLayout()
-               
+
         poseGroup = QGroupBox("Current Pose")
         poseLayout = QVBoxLayout()
-
-
+        
         goalGroup = QGroupBox('Ranging To Goal')
         goalLayout = QVBoxLayout()
 
 
         self.poseLabels = [QLabeledValue("X"),
                 QLabeledValue("Y"),
+                QLabeledValue("Z"),
                 QLabeledValue("Yaw")]
+        
         poseLayout.setSpacing(0)
         for label in self.poseLabels:
             poseLayout.addWidget(label)
 
         poseGroup.setLayout(poseLayout)
-
+        poseGroup.setMinimumWidth(200)
+        
         goalRangeGroup = QGroupBox('Ranging to Goal')
         goalRangeLayout = QVBoxLayout()
 
         self.goalRangeLabels=[QLabeledValue('Range X'),
                               QLabeledValue('Range Y'),
-                              QLabeledValue('Target Yaw')]
+                              QLabeledValue('Yaw Delta')]
         goalRangeLayout.setSpacing(0)
         for label in self.goalRangeLabels:
             goalRangeLayout.addWidget(label)
@@ -108,8 +132,11 @@ class NavTaskWidget(QSplitter):
 
         controlsGroup = QGroupBox('Robot Controls')
         controlsLayout = QVBoxLayout()
-        self.linVelSlider = QLabeledSlider('Linear Vel:')
-        self.angVelSlider = QLabeledSlider('Angular Vel:')
+        self.linVelSlider = QLabeledSlider('Linear Velocity', -50, 50, 0)
+        self.angVelSlider = QLabeledSlider('Angular Velocity', -20, 20, 0)
+        self.linVelSlider.valueChanged.connect(self.onNewLinVel)
+        self.angVelSlider.valueChanged.connect(self.onNewAngVel)
+        
         controlsLayout.addWidget(self.linVelSlider)
         controlsLayout.addWidget(self.angVelSlider)
         
@@ -128,21 +155,112 @@ class NavTaskWidget(QSplitter):
         #self.stateTimer = QTimer()
         #self.stateTimer.timeout.connect(self._updateState)
         #self.stateTimer.start(100)
+        self.currentGoal = (0,0)
         
-        self.odom_sub = rospy.Subscriber('state', Pose2D, self.robot_state_cb)
-        self.dem_sub = rospy.Subscriber('dem', Image, self.dem_cb)
+        self.odom_sub = rospy.Subscriber('odom', Odometry, self.robot_state_cb)
+        self.twist_pub = rospy.Publisher('cmd_vel', Twist, queue_size=10)
+
 
         #Resize the splitter thing
         self.setSizes([self.height()*0.77, self.height()*0.20, self.height()*0.023])
         #Disable the sizer handles
-        self.handle(1).setEnabled(False)
-        self.handle(2).setEnabled(False)
+        #self.handle(1).setEnabled(False)
+        #self.handle(2).setEnabled(False)
         
         self.stateQueue = deque() #Queue() #to handle high volume state updates from bag playback
+        
+        map(self.robot_state_changed.connect, [self.updateRobotState])
 
+    def initialize(self, start, goal):
+        #Teleport the robot to the start position
+        self.setRobotPosition((start.position.x, start.position.y, start.position.z), start.orientation)
+
+        #Resume physics:
+        self.resumePhysics()
+       
+
+        #Add the goal to the map
+        self.currentGoal = (goal.position.x, goal.position.y)
+        self.startPos = (start.position.x, start.position.y)
+        self.map_view.addGoal('*', goal.position.x, goal.position.y)
+        #self.map_view.goalVisible[itemKey] = True
+        
+        
+    def resumePhysics(self):
+         try:
+            pause_physics = rospy.ServiceProxy(self.gazeboNamespace+'/unpause_physics', std_srvs.srv.Empty)
+            rospy.loginfo("Calling service %s/pause_physics" % self.gazeboNamespace)
+                        
+            resp = pause_physics(std_srvs.srv.EmptyRequest())
+            return 
+         except rospy.ServiceException, e:
+            print "Service call failed: %s"%e
+
+    def pausePhysics(self):
+        try:
+            pause_physics = rospy.ServiceProxy(self.gazeboNamespace+'/pause_physics', std_srvs.srv.Empty)
+            rospy.loginfo("Calling service %s/pause_physics" % self.gazeboNamespace)
+                        
+            resp = pause_physics(std_srvs.srv.EmptyRequest())
+            return 
+        except rospy.ServiceException, e:
+            print "Service call failed: %s"%e
+            
+    def setRobotPosition(self, pose, quat):
+        try:
+            set_model_state = rospy.ServiceProxy(self.gazeboNamespace+'/set_model_state', SetModelState)
+            rospy.loginfo("Calling service %s/set_model_state" % self.gazeboNamespace)
+            st = ModelState()
+            st.model_name = self.modelName
+            st.pose.position.x = pose[0]
+            st.pose.position.y = pose[1]
+            st.pose.position.z = pose[2]
+            st.pose.orientation = Quaternion(quat.x, quat.y, quat.z, quat.w)
+            
+            resp = set_model_state(st)
+            rospy.loginfo("State set status: %s"%resp.status_message)
+            return resp.success
+        except rospy.ServiceException, e:
+            print "Service call failed: %s"%e
+            
+    def onNewLinVel(self, newVal):
+        msg = Twist()
+
+        msg.angular.z = -self.angVelSlider.getValue()
+        msg.linear.x = newVal
+        self.twist_pub.publish(msg)
+        
+    def onNewAngVel(self, newVal):
+        msg = Twist()
+
+        msg.angular.z = -newVal
+        msg.linear.x = self.linVelSlider.getValue()
+        self.twist_pub.publish(msg)
+        
     def btnDone_onclick(self):
-        self.scoringComplete.emit()
-
+        if self.score is None:
+            #Stop the robot
+            msg = Twist()
+            msg.angular.z = 0.0
+            msg.linear.x = 0.0
+            self.twist_pub.publish(msg)
+            self.finalTime = rospy.Time.now()
+            self.pausePhysics()
+            #Compute and display the score:
+            #Score is the % of distance travelled between goal and end state
+            distToGoal = self.l2dist((self.currentGoal[0], self.currentGoal[1]),
+                                     (self.robot_state_latest[0], self.robot_state_latest[1]))
+            totalDist = self.l2dist((self.currentGoal[0], self.currentGoal[1]),
+                                     (self.startPos[0], self.startPos[1]))
+            self.score = 1.0 - distToGoal / totalDist
+            self.btnDone.setText('Score: %1.2f, press for next task' % self.score)
+        else:
+            #Clean up the goals and the traverses
+            self.map_view.removeGoal('*')
+            self.map_view.removeTraverse(0)
+            self.btnDone.setText('Get Score')
+            self.scoringComplete.emit()
+        
     def addGoals(self, goalList):
         allGoals = sorted(goalList, key=lambda param: param[0]) #Sort the combined list by the goal ID
         
@@ -155,13 +273,15 @@ class NavTaskWidget(QSplitter):
         
             self.goalModel.appendRow(item)
             self.goalList.setModel(self.goalModel)
-            self._map_view.addGoal(goal[0], goal[1].x, goal[1].y)
+            self.map_view.addGoal(goal[0], goal[1].x, goal[1].y)
             #            self._map_view.goals[itemKey] = goal[1]
-            self._map_view.goalVisible[itemKey] = True
+            self.map_view.goalVisible[itemKey] = True
 
-        
+    def l2dist(self, src, dest):
+        return math.sqrt((dest[0] - src[0])**2 + (dest[1] - src[1]) ** 2)
+    
     def updateRobotState(self):
-
+        self.map_view.updateRobotState(self.robot_state_latest)
         #process every message in the queue so far:
         #print 'State queue size:', len(self.stateQueue)
         while True:
@@ -173,47 +293,58 @@ class NavTaskWidget(QSplitter):
             for idx, val in enumerate(self._robotState):
                 self.poseLabels[idx].updateValue(val)
 
-                #self.fuelLabel.updateValue(self._robotFuel)
+            #Update the goal ranging
+            self.goalRangeLabels[0].updateValue(self.currentGoal[0] - self.robot_state_latest[0])
+            self.goalRangeLabels[1].updateValue(self.currentGoal[1] - self.robot_state_latest[1])
 
-                #Ping unity with a steer if enabled
-                '''
-                if not self.lastSteerMsg is None:
-                self.steer_pub.publish(self.lastSteerMsg)
-                '''
-                #Add to the current traverse
+            #Compute the atan - desired yaw to get to goal
+            self.goalRangeLabels[2].updateValue('%1.1f' % (math.atan2(self.currentGoal[1] - self.robot_state_latest[1],
+                                                                      self.currentGoal[0] - self.robot_state_latest[0])- self.robot_state_latest[3]))         
+            #Add to the current traverse
 
-            currentIndex = len(self._map_view.traverses.keys()) - 1
+            currentIndex = len(self.map_view.traverses.keys()) - 1
             if currentIndex >= 0:
-                self._map_view.addTraversePoint(currentIndex, (self._robotState[0], self._robotState[1]))
+                self.map_view.addTraversePoint(currentIndex, (self._robotState[0], self._robotState[1]))
+                
+            #Zoom in on the robot
 
+            left = min(self._robotState[0], self.currentGoal[0])
+            top = max(self._robotState[1], self.currentGoal[1])
+            width = abs(self._robotState[0] - self.currentGoal[0])
+            height = abs(self._robotState[1] - self.currentGoal[1])
+
+           
+            #print 'Raw window: l:', left, ' t:' , top, ' w:', width, ' h:', height
+            #Translate to scene coords from gazebo coords
+            margin = 50
+            self.map_view.setSceneRect(self.map_view.w/2 + left - margin, self.map_view.h/2 - top - margin, width+margin*2, height+margin*2)
+            #print 'Scene rect:', self.map_view.sceneRect()
+            self.map_view.fitInView(self.map_view.sceneRect(), Qt.KeepAspectRatio)
+            #print 'Set scene rect to:', self.sceneRect()
         
     def robot_state_cb(self, msg):
         #Resolve the odometry to a screen coordinate for display
 
-        worldX = msg.pose.position.x
-        worldY = msg.pose.position.y
-        worldZ = msg.pose.position.z
+        worldX = msg.pose.pose.position.x
+        worldY = msg.pose.pose.position.y
+        worldZ = msg.pose.pose.position.z
 
+        #print 'WorldZ:', worldZ
         
-        worldRoll, worldPitch, worldYaw = euler_from_quaternion([msg.pose.orientation.x,
-                                                                 msg.pose.orientation.y,
-                                                                 msg.pose.orientation.z,
-                                                                 msg.pose.orientation.w],'sxyz')
+        worldRoll, worldPitch, worldYaw = euler_from_quaternion([msg.pose.pose.orientation.x,
+                                                                 msg.pose.pose.orientation.y,
+                                                                 msg.pose.pose.orientation.z,
+                                                                 msg.pose.pose.orientation.w],'sxyz')
 
 
         #TODO: Wrap the inv rpy to [-pi, pi]
         #print 'Orientation:', msg.pose.orientation, ' RPY:', worldRoll, worldPitch, worldYaw
         
-        self.stateQueue.appendleft([worldX, worldY, worldZ, worldRoll, worldPitch, worldYaw])
+        self.stateQueue.appendleft([worldX, worldY, worldZ, worldYaw])
+        self.robot_state_latest = [worldX, worldY, worldZ, worldYaw]
         
-        #print 'Robot State:', self._robotState
-        #self._robotFuel = msg.fuel
-
         self.robot_state_changed.emit()
 
-    def dem_cb(self, msg):
-        print 'Got dem cb'
-        
     def close(self):
         if self.dem_sub:
             self.dem_sub.unregister()
@@ -221,16 +352,30 @@ class NavTaskWidget(QSplitter):
             self.odom_sub.unregister()
             
     def mousePressEvent(self, evt):
-            print 'Sizes:', self.sizes()
-class DEMView(QGraphicsView):
-    dem_changed = Signal()
-    robot_odom_changed = Signal()
+        print 'Sizes:', self.sizes()
 
-    def __init__(self, dem_topic='dem',
+    def keyPressEvent(self, evt):
+        evt.accept()
+        #print 'Got keypress:', evt.key()
+        if evt.key() == Qt.Key_Up:
+            #This fires events as needed and percolates through the system
+            self.linVelSlider.triggerAction(QAbstractSlider.SliderSingleStepAdd)
+        elif evt.key() == Qt.Key_Down:
+            #This fires events as needed and percolates through the system
+            self.linVelSlider.triggerAction(QAbstractSlider.SliderSingleStepSub)
+        elif evt.key() == Qt.Key_Left:
+            self.angVelSlider.triggerAction(QAbstractSlider.SliderSingleStepSub)
+        elif evt.key() == Qt.Key_Right:
+            self.angVelSlider.triggerAction(QAbstractSlider.SliderSingleStepAdd)
+            
+class TerrainView(QGraphicsView):
+    terrain_changed = Signal()
+
+    def __init__(self, terrain_topic='terrain',
                  tf=None, parent=None):
-        super(DEMView, self).__init__()
+        super(TerrainView, self).__init__()
         self._parent = parent
-        self.demDownsample = 4
+        self.demDownsample = 1
         #self.dem_changed.connect(self._update)
         
         
@@ -240,8 +385,8 @@ class DEMView(QGraphicsView):
         self.setDragMode(QGraphicsView.NoDrag)
 
         self._addedItems = dict()
-        self.w = 4000
-        self.h = 4000
+        self.w = 2000
+        self.h = 2000
 
         #Two color families:
         #Red and green
@@ -271,8 +416,10 @@ class DEMView(QGraphicsView):
         
         self.traverses = dict()
         self.traverseVisible = dict()
-
-        self._robotLocation = [0,0,0,0,0,0]
+        self.traverses[0] = []
+        self.traverseVisible[0] = True
+        
+        self.robotLocation = [0,0,0]
         self.goalIcons = dict()
         self.goalVisible = dict()
         
@@ -280,11 +427,22 @@ class DEMView(QGraphicsView):
 
         self.initialPosition = (3725, 2400)
         
-    
+        #Overlay the hazmap now that the dem is loaded
+        self.terrain_changed.connect(self.updateTerrain)
+        self.terrain_sub = rospy.Subscriber(terrain_topic, Image, self.terrain_cb)
+
         
     def l2dist(self, src, dest):
         return math.sqrt((dest[0] - src[0])**2 + (dest[1] - src[1]) ** 2)
-    
+
+    def removeTraverse(self, index):
+        #Remove all of the graphics items associated with this traverse:
+        for item in self.traverses[index]:
+            self.scene().removeItem(item)
+
+        #Unref the GraphicsItems
+        self.traverses[index] = []
+        
     def addTraversePoint(self, index, point):
         theColor = QColor(self._colors[index][0], self._colors[index][1], self._colors[index][2])
         theColor.setAlpha(80)
@@ -294,10 +452,14 @@ class DEMView(QGraphicsView):
         theBrush = QBrush(theColor)
         theBrush.setStyle(Qt.SolidPattern)
         
-        if self._dem_item is None:
-            return
+        #if self.traverse_item is None:
+        #    return
 
-        point_scaled = (point[0] / self.demDownsample, point[1] / self.demDownsample)
+        point_scaled = [point[0] / self.demDownsample, point[1] / self.demDownsample]
+
+        point_scaled[0] += self.w/2
+        point_scaled[1] = self.h/2 - point_scaled[1] 
+        #print 'Adding traverse point:', point_scaled
         
         if len(self.traverses[index]) == 0:
             
@@ -366,183 +528,112 @@ class DEMView(QGraphicsView):
         #Draw a new goal icon per the directions...
         if id not in self.goalIcons.keys():
             thisGoal = RobotIcon.RobotWidget(str(id), QColor(self._colors[1][0], self._colors[1][1], self._colors[1][2]))
-            thisGoal.setFont(QFont("SansSerif", max(self.h / 20.0,3), QFont.Bold))
+            thisGoal.setFont(QFont("SansSerif", max(self.h / 30.0,3), QFont.Bold))
             thisGoal.setBrush(QBrush(QColor(self._colors[1][0], self._colors[1][1], self._colors[1][2])))          
             self.goalIcons[id] = thisGoal
             #self._scene.addItem(thisGoal)
             #Update the label's text:
             self.goalIcons[id].setText(str(id))
+
             
             #Pick up the world coordinates
             world = [x, y]
             #print 'Goal raw coord:', world
-            iconBounds = self.goalIcons[id].boundingRect()
 
             world[0] /= self.demDownsample
             world[1] /= self.demDownsample
+
+            #Move the coords - goals are expressed in Gazebo coords
+            world[0] += self.w/2
+            world[1] = self.h/2 - world[1] #invert the y
             
             #Adjust the world coords so that the icon is centered on the goal
             #Since the font may change, we adjust this later
-            #world[0] = world[0] - iconBounds.width()/2 
-            #world[1] = world[1] - iconBounds.height()/2 #mirror the y coord
+            
+            iconBounds = self.goalIcons[id].boundingRect()
+            #print 'Goal bounds:', iconBounds
+            world[0] = world[0] - 24 #magic number determined by rendering the bounding box and looking at click data 
+            world[1] = world[1] - 35 #ditto
             
             #print 'Drawing goal ', id, ' at ', world
             self.goalIcons[id].setPos(QPointF(world[0], world[1]))
+            self.goalIcons[id].setZValue(100)
+            self.scene().addItem(self.goalIcons[id])
             self.goalVisible[id] = True
-            
-    def robot_odom_cb(self, msg):
 
-        #Resolve the odometry to a screen coordinate for display from a RobotState message
-
-        worldX = msg.pose.position.x
-        worldY = msg.pose.position.y
-        worldZ = msg.pose.position.z
+    def removeGoal(self, id):
+        self.scene().removeItem(self.goalIcons[id])
+        del self.goalIcons[id]
         
-        worldRoll, worldPitch, worldYaw = euler_from_quaternion([msg.pose.orientation.x,
-                                                                 msg.pose.orientation.y,
-                                                                 msg.pose.orientation.z,
-                                                                 msg.pose.orientation.w],'sxyz')
-
-       
-        self._robotLocation = [worldX, worldY, worldZ, worldRoll, worldPitch, worldYaw]
-        #print 'Robot at: ', self._robotLocations[0] 
-        
-        self.robot_odom_changed.emit()
-        
-    def _updateRobot(self):
+    def updateRobotState(self, robotLocation):
         #Redraw the robot locations
-        #print 'Updating robot locations'
+        #print 'Updating robot location:', robotLocation
+        
         #If this is the first time we've seen this robot, create its icon
         if self._robotIcon == None:
-            #thisRobot = RobotIcon.RobotWidget('R', color=QColor(self._colors[0][0], self._colors[0][1], self._colors[0][2]))
-            #thisRobot.setFont(QFont("SansSerif", max(self.h / 20.0,3), QFont.Bold))
-            #thisRobot.setBrush(QBrush(QColor(self._colors[0][0], self._colors[0][1], self._colors[0][2])))
             thisRobot = QArrow.QArrow(color=QColor(self._colors[0][0], self._colors[0][1], self._colors[0][2]))
+            #print 'Robot icon:', thisRobot
+            
             self._robotIcon = thisRobot
             self._scene.addItem(thisRobot)
             
         #Pick up the world coordinates - copy so we can change in place
-        world = copy.deepcopy(self._robotLocation)
+        world = list(copy.deepcopy(robotLocation))
         #print 'Raw robot loc: ', world[0], world[1]
-        
+
+        #Translate to the center:
+        world[0] += self.w/2
+        world[1] = self.h/2 - world[1] #invert y coord
         iconBounds = self._robotIcon.boundingRect()
 
-        world[0] /= self.demDownsample
-        world[1] /= self.demDownsample
-        
+        #world[0] /= self.demDownsample
+        #world[1] /= self.demDownsample
+
+        #Updated the QArrow so that its natural origin is at its origin
         #Adjust the world coords so that the icon is centered on the robot, rather than top-left
-        world[0] = world[0] - iconBounds.width()/2 
-        world[1] = world[1] - iconBounds.height()/2 #mirror the y coord
+        #world[0] = world[0] - iconBounds.width()/2 
+        #world[1] = world[1] - iconBounds.height()/2 #mirror the y coord
 
         #print 'Drawing robot at ', world[0], world[1]
         
         self._robotIcon.setPos(QPointF(world[0], world[1]))
         
-        #print 'Rotating:', world[5]
-        self._robotIcon.setRotation(world[5]*180/math.pi + 90)
-        
         #Set the origin so that the caret rotates around its center(ish)
-        self._robotIcon.setTransformOriginPoint(QPoint(iconBounds.width()/2, iconBounds.height()/2))
+        #self._robotIcon.setTransformOriginPoint(QPoint(iconBounds.width()/2, iconBounds.height()/2))
 
+        #print 'Rotating:', world[5]
+        self._robotIcon.setRotation(-world[3]*180/math.pi + 90)
+        
+       
         #print 'Transform origin:', self._robotIcon.transformOriginPoint()
-    
-        
-    def mousePressEvent(self,e):
-        return
-    
-    def hazmap_cb(self, msg):
-        #Unlike the dem, the hazmap is pretty standard - gray8 image
-        hazmap = CvBridge().imgmsg_to_cv2(msg, desired_encoding="passthrough")
+        self._robotIcon.setZValue(100)
 
-        self.hazmapImage = QImage(hazmap, msg.width, msg.height, QImage.Format_Grayscale8)
-        self.hazmap_changed.emit()
 
-    def _updateHazmap(self):
-        print 'Rendering hazmap'
+    def terrain_cb(self, msg):
+        #Unlike the dem, the terrain is pretty standard - rgb8 image
+        terrain = CvBridge().imgmsg_to_cv2(msg, desired_encoding="passthrough")
+        self.w = msg.width
+        self.h = msg.height
+        self.terrainImage = QImage(terrain, msg.width, msg.height, QImage.Format_RGB888)
+        self.terrain_changed.emit()
 
-        hazTrans = QImage(self.hazmapImage.width(), self.hazmapImage.height(), QImage.Format_ARGB32)
-        hazTrans.fill(Qt.transparent)
-        
-        for row in range(0, self.hazmapImage.height()):
-            for col in range(0, self.hazmapImage.width()):
-                #Change the colormap to be clear for clear areas, red translucent for obstacles
-                pixColor = self.hazmapImage.pixelColor(col, row)
+    def updateTerrain(self):
+        print 'Rendering terrain'
 
-                if pixColor.rgba() == 0xff000000:
-                    hazTrans.setPixelColor(col, row, QColor(255, 0, 0, 32))
-                else:
-                    hazTrans.setPixelColor(col, row, QColor(0, 0, 0, 0))
-
-        self.hazmapItem = self._scene.addPixmap(QPixmap.fromImage(hazTrans)) #.scaled(self.w*100,self.h*100))
-        self.hazmapItem.setPos(QPointF(0, 0))
+        self.terrainItem = self._scene.addPixmap(QPixmap.fromImage(self.terrainImage))
+        self.terrainItem.setPos(QPointF(0, 0))
+        self.setSceneRect(0, 0, self.terrainItem.pixmap().width(), self.terrainItem.pixmap().width())
+        self.fitInView(self.sceneRect(), Qt.KeepAspectRatio)
         trans = QTransform()
         #print 'Translating by:', bounds.width()
         
-        trans.scale(self.w/hazTrans.width(),self.h/hazTrans.height())
+        #trans.scale(self.w/hazTrans.width(),self.h/hazTrans.height())
         #trans.translate(0, -bounds.height())
-        self.hazmapItem.setTransform(trans)
+        #self.terrainItem.setTransform(trans)
         
         # Everything must be mirrored
         #self._mirror(self.hazmapItem)
-        
-    def dem_cb(self, msg):
-        #self.resolution = msg.info.resolution
-        self.w = msg.width
-        self.h = msg.height
-
-        print 'Got DEM encoded as:', msg.encoding
-        print 'message length:', len(msg.data), 'type:', type(msg.data)
-        print 'width:', msg.width
-        print 'height:', msg.height
-        
-        a = np.array(struct.unpack('<%dd' % (msg.width*msg.height), msg.data), dtype=np.float64, copy=False, order='C')
-
-        rawDEM = a.reshape((self.h, self.w))
-        rawDEM = cv2.resize(rawDEM, (self.h//self.demDownsample, self.w//self.demDownsample), interpolation = cv2.INTER_LINEAR)
-        self.h = rawDEM.shape[0]
-        self.w = rawDEM.shape[1]
-        
-        '''
-        if self.w % 4:
-            e = np.zeros((self.h, 4 - self.w % 4), dtype=rawDEM.dtype, order='C')
-            rawDEM = np.append(rawDEM, e, axis=1)
-            self.h = rawDEM.shape[0]
-            self.w = rawDEM.shape[1]
-        ''' 
-
-        #Scale to a 8-bit grayscale image:
-        self.grayDEM = np.zeros(rawDEM.shape, dtype=np.uint8)
-        minZ = np.min(np.min(rawDEM))
-        maxZ = np.max(np.max(rawDEM))
-        dynRange = maxZ - minZ
-
-        print 'Max Z:', maxZ
-        print 'Min Z:', minZ
-        
-        for i in range(0, self.h):
-            for j in range(0, self.w):
-                self.grayDEM[i][j] = (rawDEM[i][j] - minZ) * 255/dynRange
-
-        #use OpenCV2 to interpolate the dem into something reasonably sized
-        print 'Grayscale conversion complete'
-
-        #Needs to be a class variable so that at QImage built on top of this numpy array has
-        #a valid underlying buffer - local ars
-        #self.resizedDEM = cv2.resize(self.grayDEM, (500,500), interpolation = cv2.INTER_LINEAR)
-
-        print 'Image resize complete'
-        
-        self.h = self.grayDEM.shape[0]
-        self.w = self.grayDEM.shape[1]
-        image = QImage(self.grayDEM.reshape((self.h*self.w)), self.w, self.h, QImage.Format_Grayscale8)
-
-        #        for i in reversed(range(101)):
-        #            image.setColor(100 - i, qRgb(i* 2.55, i * 2.55, i * 2.55))
-        #        image.setColor(101, qRgb(255, 0, 0))  # not used indices
-        #        image.setColor(255, qRgb(200, 200, 200))  # color for unknown value -1
-
-        self._dem = image       
-        self.dem_changed.emit()
+ 
 
     def close(self):
         super().close()
@@ -551,6 +642,8 @@ class DEMView(QGraphicsView):
         scenePt = self.mapToScene(e.pos())
         print 'Click at:', scenePt.x(), ' ', scenePt.y()
 
+    def keyPressEvent(self, evt):
+        evt.ignore()
         
     def dragMoveEvent(self, e):
         print('Scene got drag move event')
@@ -566,37 +659,7 @@ class DEMView(QGraphicsView):
             self.show()
  
     def _update(self):
-        if self._dem_item:
-            self._scene.removeItem(self._dem_item)
-
-        pixmap = QPixmap.fromImage(self._dem)
-        self._dem_item = self._scene.addPixmap(pixmap) #.scaled(self.w*100,self.h*100))
-        self._dem_item.setPos(QPointF(0, 0))
-        # Everything must be mirrored
-        #self._mirror(self._dem_item)
-
-        # Add drag and drop functionality
-        self.add_dragdrop(self._dem_item)
-
-        #Resize map to fill window
-        scale = 1
-        self.setSceneRect(0, 0, self.w*scale, self.h*scale)
-        self.fitInView(self._scene.sceneRect(), Qt.KeepAspectRatio)
-        #self.centerOn(self._dem_item)
-        self.show()
-        bounds = self._scene.sceneRect()
-        #print 'Bounds:', bounds
-        #Allow the robot position to be drawn on the DEM 
-        #self.robot_odom_changed.connect(self._updateRobot)
-
-        #Overlay the hazmap now that the dem is loaded
-        self.hazmap_sub = rospy.Subscriber('hazmap', Image, self.hazmap_cb)
-
-        #Allow goals to be drawn as well
-        #self.goalList_changed.connect(self._updateGoalList)
-
-        #Add the policy as well
-        self.policy_sub = rospy.Subscriber('policy', Policy, self.policy_cb)
+ 
 
         #Make sure the goals stack above this
         for item in self.goalIcons.items():
@@ -609,7 +672,7 @@ class DEMView(QGraphicsView):
         #Draw the initial position
         self.addInitial(self.initialPosition[0], self.initialPosition[1])
         
-    def _mirror(self, item):
+    def mirror(self, item):
         #Get the width from the item's bounds...
         bounds = item.sceneBoundingRect()
         #print 'Bounds:', bounds
@@ -639,7 +702,7 @@ class CamView(QGraphicsView):
         self.image_changed.connect(self._updateImage)
         self._image = None
         self._imageItem = None
-        self.setMaximumWidth(400)
+        
 
         
     def image_cb(self, msg):
@@ -649,10 +712,12 @@ class CamView(QGraphicsView):
         self.image_changed.emit()
         
     def _updateImage(self):
-        if self._imageItem:
-            self.scene().removeItem(self._imageItem)
+        #Refresh the pixmap instead of removing/adding the image...
+        #print 'Updating camera view'
+        if self._imageItem is None:
+            self._imageItem = self.scene().addPixmap(self._image)
          #self._image.height/2)
-        self._imageItem = self._scene.addPixmap(self._image)
+        self._imageItem.setPixmap(self._image)
         self._imageItem.setZValue(0)
         self.setSceneRect(0, 0, self.w, self.h)
 
@@ -668,7 +733,10 @@ class CamView(QGraphicsView):
             self.fitInView(bounds, Qt.KeepAspectRatio)
             #self.centerOn(self._imageG)
             self.show()
-            
+
+    def keyPressEvent(self, evt):
+        evt.ignore()
+        
 def main():
         if len(sys.argv) < 1:
                 print 'Usage:', sys.argv[0], ''
