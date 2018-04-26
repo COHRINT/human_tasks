@@ -6,6 +6,7 @@ import math
 import rospy
 import signal
 import time
+import json
 
 import numpy as np
 
@@ -23,6 +24,7 @@ from human_tasks.msg import *
 class SampleHandlingWidget(QWidget):
     scoringComplete = pyqtSignal()
     reinitialize = pyqtSignal(float, float)
+    onTelemetry = pyqtSignal(str, str)
     
     def __init__(self):
         super(QWidget, self).__init__()
@@ -41,8 +43,10 @@ class SampleHandlingWidget(QWidget):
         self.sampleView.setWindParams(self.windDir+90, self.windVel)
         self.score = 0.0
         self.finalTime = None
-        
+        self.startTime = rospy.Time.now()
         self.update()
+        self.telemetryTimer.start(100)
+        self.sampleView.grabKeyboard()
         
     def initUI(self):
 
@@ -60,18 +64,36 @@ class SampleHandlingWidget(QWidget):
         mainLayout.addWidget(self.btnDone)
 
         self.setLayout(mainLayout)
-                
+
+        self.telemetryTimer = QTimer()
+        self.telemetryTimer.timeout.connect(self.pushTelemetry)
+        
+    def pushTelemetry(self):
+        self.onTelemetry.emit('SampleHandlingWidget', self.makeStateJSON())
+        
+    def makeStateJSON(self):
+        #Produce a Python dict, then encode to JSON
+
+        state = dict()
+        state['crosshairPosition'] = (self.sampleView.crossHair.pos().x(),
+                                      self.sampleView.crossHair.pos().y())
+        return json.dumps(state)
+    
     def btnDone_keyPress(self, evt):
         if evt.key() == Qt.Key_Return:
             self.btnDone_onclick()
         
     def btnDone_onclick(self):
         if self.finalTime is None:
+            self.sampleView.releaseKeyboard()
             self.drawSamples()
-            self.btnDone.setText('Next Task')
+            elapsedTime = self.finalTime - self.startTime
+            self.btnDone.setText('Score: %1.2f Time: %1.1f sec - Get Next Task' %
+                                 (self.score, elapsedTime.to_sec()))
+            self.telemetryTimer.stop()
         else:
             self.scoringComplete.emit()
-
+            
             #Reset the button for next time
             self.btnDone.setText('Get Score')
             #self.parent().close()
@@ -107,7 +129,7 @@ class SampleHandlingWidget(QWidget):
         self.score = float(funnelCount) / sampleCount
         self.finalTime = rospy.Time.now()
         
-        print 'User earned a score of:', self.score
+        #print 'User earned a score of:', self.score
         
         self.sampleView.setDisabled(True)
         self.btnDone.setFocus(Qt.TabFocusReason)

@@ -45,9 +45,9 @@ class ControlNode(object):
         handlingTaskFile = rospy.get_param('~handlingTasks', None)
 
         #Fire up a publisher for each task type:
-        self.navPub = rospy.Publisher('nav_task', Navigation, queue_size=10)
-        self.graspPub = rospy.Publisher('grasp_task', Grasping, queue_size=10)
-        self.handlingPub = rospy.Publisher('handling_task', SampleHandling, queue_size=10)
+        self.navPub = rospy.Publisher('~nav_task', Navigation, queue_size=10)
+        self.graspPub = rospy.Publisher('~grasp_task', Grasping, queue_size=10)
+        self.handlingPub = rospy.Publisher('~sample_task', SampleHandling, queue_size=10)
         
         #For each task type, each row represents a scenario that can be run
         #So for example, for grasping, each row in the polygons.csv file is a scenario
@@ -56,7 +56,37 @@ class ControlNode(object):
         self.graspTasks = self.loadTaskFile(graspTaskFile)
         self.handlingTasks = self.loadTaskFile(handlingTaskFile)
         self.scenarios = self.loadTaskFile(scenarioFile)
+        
+    def runHandlingTask(self, index):
+        #Make the service call for the scenario with index
+        try:
+            sample_task = rospy.ServiceProxy(self.experimentNS+'/tasks/sample_task', RunSampleTask)
+            req = RunSampleTaskRequest()
+            print 'Running sample handling task:', index
+            print self.handlingTasks[index]
+            #Parse the CSV file of handling tasks
+            #Elements:
+            #0: difficulty
+            #1: wind direction
+            #2: wind velocity
 
+            req.windDir = int(self.handlingTasks[index][1])
+            req.windVel = int(self.handlingTasks[index][2])
+            
+            resp = sample_task(req)
+
+            #Publish a report for this subtask
+            msg = copy.deepcopy(resp.report)
+            #Add the difficulty
+            msg.difficulty = int(self.handlingTasks[index][0])
+            msg.scenarioIndex = index
+            
+            self.handlingPub.publish(msg)
+            
+            return 
+        except rospy.ServiceException, e:
+            print "Service call failed: %s"%e
+            
         
     def runGraspTask(self, index):
         #Make the service call for the scenario with index

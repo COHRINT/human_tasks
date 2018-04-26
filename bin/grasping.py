@@ -8,7 +8,7 @@ import signal
 import time
 import pdb
 import numpy as np
-
+import json
 
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
@@ -25,6 +25,7 @@ from human_tasks.msg import *
 class GraspingWidget(QWidget):
     scoringComplete = pyqtSignal()
     reinitialize = pyqtSignal(QPolygonF)
+    onTelemetry = pyqtSignal(str, str)
     
     def __init__(self, srcObject):
         super(GraspingWidget, self).__init__()
@@ -47,10 +48,13 @@ class GraspingWidget(QWidget):
         self.graspView.newScenario(self.srcPolygon)
 
         self.update()
-        
+
+
         self.score = 0.0
         self.startTime = rospy.Time.now()
         self.finalTime = None
+                
+        self.telemetryTimer.start(100)
         self.graspView.grabKeyboard()
         
     def initUI(self):
@@ -71,8 +75,27 @@ class GraspingWidget(QWidget):
         #Since you can only set layout once and I don't know how to delete() something in Python...
         #Create all the elements once, and then rearrange them every task cycle
         self.setLayout(mainLayout)
+        self.telemetryTimer = QTimer(self)
+        self.telemetryTimer.timeout.connect(self.pushTelemetry)
+
+
+    def pushTelemetry(self):
+        self.onTelemetry.emit('GraspingWidget', self.makeStateJSON())
         
+    def makeStateJSON(self):
+        #Produce a Python dict, then encode to JSON
+        #
+
+        state = dict()
+        state['gripAngle'] = self.graspView.gripper.rotation()
+        state['gripPosition'] = (self.graspView.gripper.pos().x(),
+                                 self.graspView.gripper.pos().y())
+        state['objectPosition'] = (self.graspView.objItem.pos().x(),
+                                   self.graspView.objItem.pos().y())
+        state['objectAngle'] = self.graspView.objItem.rotation()
         
+        return json.dumps(state)
+    
     def btnDone_keyPress(self, evt):
         if evt.key() == Qt.Key_Return:
             self.btnDone_onclick()
@@ -82,8 +105,9 @@ class GraspingWidget(QWidget):
         if self.finalTime is None:
             self.runScoring()
             elapsedTime = self.finalTime - self.startTime
-            self.btnDone.setText('Score: %1.2f, Time: %1.1f sec: Get Next Task' %
+            self.btnDone.setText('Score: %1.2f, Time: %1.1f sec - Get Next Task' %
                                  (self.score, elapsedTime.to_sec()))
+            self.telemetryTimer.stop()
         else:
             self.scoringComplete.emit()
             #Reset the button for next round

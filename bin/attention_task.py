@@ -3,6 +3,7 @@
 #Attention task, based on J. McGinley's attentionToast.py
 import sys
 import numpy as np
+import json
 
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
@@ -22,6 +23,8 @@ class AttentionWidget(QWidget):
     timer_expired = pyqtSignal()
     box_closed = pyqtSignal()
     duration = pyqtSignal()
+    onTelemetry = pyqtSignal(str, str)
+    
     messageSources = ['EVA 1', 'EVA 2', 'Hab: Infirmary', 'Hab: Greenhouse',
                       'Hab: Science Lab', 'Earth: CAPCOM', 'Earth: Physio',
                       'Earth: Science']
@@ -31,7 +34,7 @@ class AttentionWidget(QWidget):
 
         self.getLambda = rospy.Service('~GetAttentionLambda', GetCurrentLambda, self.get_lambda)
         self.changeLambda = rospy.Service('~SetAttentionLambda', ChangeLambda, self.change_lambda)
-        self.attentionPub = rospy.Publisher('attention', AttentionTask, queue_size=10)
+        self.attentionPub = rospy.Publisher('~attention', AttentionTask, queue_size=10)
         
         self.exp_parameter = 5.0
         self.timer_expired.connect(self.showNewMessage)
@@ -116,6 +119,17 @@ class AttentionWidget(QWidget):
         
         self.lcdTimer.start(1000)
 
+        #Emit some telemetry for start of message:
+        self.onTelemetry.emit('AttentionWidget', self.makeStateJSON())
+        
+    def makeStateJSON(self):
+        #Produce a Python dict, then encode to JSON
+
+        state = dict()
+        state['messageSource'] = self.commSource.getValue()
+        state['lambda_value'] = self.exp_parameter
+        return json.dumps(state)
+    
     def commReport(self, category):
         msg = AttentionTask()
         msg.spent =  rospy.Time.now() - self.startTime

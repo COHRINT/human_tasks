@@ -20,6 +20,7 @@ import rospy
 class ExperimentView(QSplitter):
     visibilityChanged = pyqtSignal(bool)
     progressChanged = pyqtSignal(int, int)
+    layoutChanged = pyqtSignal(QWidget)
     
     def __init__(self, parent=None):
         super(ExperimentView, self).__init__(parent)
@@ -30,6 +31,9 @@ class ExperimentView(QSplitter):
         self.taskCondition = QWaitCondition()
         self.visibilityChanged.connect(self.onVisibilityChanged)
         self.progressChanged.connect(self.onProgressChanged)
+        self.layoutChanged.connect(self.onLayoutChanged)
+        
+        self.telemetryPub = rospy.Publisher('~telemetry', UITelemetry, queue_size=10)
         
     def startServices(self):
         self.graspSvc = rospy.Service('~tasks/grasp_task', RunGraspTask, self.svcGraspTask)
@@ -71,6 +75,12 @@ class ExperimentView(QSplitter):
             self.attentionTask.pause()
             self.tankTask.pause()
 
+    def onLayoutChanged(self, desiredWidget):
+        for index in range(0, self.taskLayout.count()):
+            self.taskLayout.itemAt(index).widget().setVisible(False)
+        desiredWidget.setVisible(True)
+        self.taskLayout.update()
+        
     def svcProgress(self, req):
         self.progressChanged.emit(req.current, req.total)
         return SetProgressResponse()
@@ -117,8 +127,6 @@ class ExperimentView(QSplitter):
 
     def svcSampleTask(self, req):
         #print 'Setting sample'
-        for index in range(0, self.taskLayout.count()):
-            self.taskLayout.itemAt(index).widget().setVisible(False)
 
         self.taskLock.lock()
         #post a signal to the sampleTask telling it to re-initialize
@@ -136,17 +144,15 @@ class ExperimentView(QSplitter):
         resp.report.windDir = self.sampleTask.windDirNoisy
         resp.report.windVel = self.sampleTask.windVelNoisy
         resp.report.duration = totalTime.to_sec()
-        resp.startTime = startTime
-        resp.endTime = self.sampleTask.finalTime
+        resp.report.startTime = startTime
+        resp.report.endTime = self.sampleTask.finalTime
         return resp
 
     def svcNavTask(self, req):
         #print 'Setting nav:'
-        for index in range(0, self.taskLayout.count()):
-            self.taskLayout.itemAt(index).widget().setVisible(False)
 
-        self.navTask.setVisible(True)
-        self.taskLayout.update()
+        self.layoutChanged.emit(self.navTask)
+        
         self.taskLock.lock()
         #print 'Sleeping in service call'
 
@@ -191,7 +197,7 @@ class ExperimentView(QSplitter):
                                    
         expControlLayout.addLayout(progressLayout)
         expControlLayout.addWidget(self.btnPause)
-        expControlLayout.addWidget(self.btnQuit)
+        #expControlLayout.addWidget(self.btnQuit)
 
         expControl.setLayout(expControlLayout)
         expGroupLayout = QVBoxLayout()
@@ -206,15 +212,21 @@ class ExperimentView(QSplitter):
         leftPane = QSplitter()
         leftPane.setOrientation(Qt.Vertical) #vertical stack...
         leftPane.addWidget(expControl)
+
+        #Add a filler Widget:
+        filler = QWidget()
+        #filler.setFixedHeight(leftPane.height()/6)
+        leftPane.addWidget(filler)
         leftPane.addWidget(self.attentionTask)
         leftPane.addWidget(self.tankTask)
-        leftPane.setSizes((leftPane.height()/3, leftPane.height()/6, leftPane.height()/3))
+        leftPane.setSizes((leftPane.height()/8, leftPane.height()/4, leftPane.height()/8, leftPane.height()/2))
 
         
         #Disable the handles...
         leftPane.handle(1).setEnabled(False)
         leftPane.handle(2).setEnabled(False)
-        
+        leftPane.handle(3).setEnabled(False)
+
         self.setOrientation(Qt.Horizontal) #horiz stack
         self.addWidget(leftPane)
 
@@ -261,8 +273,26 @@ class ExperimentView(QSplitter):
         print 'Pausing'
         self.attentionTask.pause()
         self.tankTask.pause()
+
+
+        #Connect the telemetry recorders:
+        self.navTask.onTelemetry.connect(self.onTelemetry)
+        self.graspTask.onTelemetry.connect(self.onTelemetry)
+        self.sampleTask.onTelemetry.connect(self.onTelemetry)
+        self.tankTask.onTelemetry.connect(self.onTelemetry)
+        self.attentionTask.onTelemetry.connect(self.onTelemetry)
+        
         self.showFullScreen()
 
+    def onTelemetry(self, src, jsonState):
+        #Publish the given telemetry message:
+        msg = UITelemetry()
+        msg.header.stamp = rospy.Time.now()
+        msg.uiElement = src
+        msg.jsonState = jsonState
+
+        self.telemetryPub.publish(msg)
+        
     def btnPause_onclick(self, evt):
         #Pause the experiment, including the attention / tank tasks, etc
         if self.btnPause.isChecked():

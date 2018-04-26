@@ -7,6 +7,7 @@ from tf.transformations import *
 import numpy as np
 import random
 from math import sqrt, atan, pi, degrees, floor, atan2
+import json
 
 from cv_bridge import CvBridge, CvBridgeError
 
@@ -51,6 +52,7 @@ class NavTaskWidget(QSplitter):
     robot_state_changed = Signal()
     goal_changed = Signal()
     goalList_changed = Signal(str)
+    onTelemetry = pyqtSignal(str, str)
     
     def __init__(self, terrain_topic='/terrain', cam_topic = '/image_raw',
                  gazebo_namespace='/gazebo', modelName = 'robot0'):
@@ -150,13 +152,13 @@ class NavTaskWidget(QSplitter):
         
         lowerWidget = QWidget()
         lowerWidget.setLayout(lowerHalf)
-
+ 
         self.addWidget(lowerWidget)
         self.addWidget(self.btnDone)
         
-        #self.stateTimer = QTimer()
-        #self.stateTimer.timeout.connect(self._updateState)
-        #self.stateTimer.start(100)
+        self.stateTimer = QTimer()
+        self.stateTimer.timeout.connect(self.pushTelemetry)
+
         self.currentGoal = (0,0)
         
         self.odom_sub = rospy.Subscriber('odom', Odometry, self.robot_state_cb)
@@ -190,11 +192,18 @@ class NavTaskWidget(QSplitter):
         self.startPos = (start.position.x, start.position.y)
         self.map_view.addGoal('*', goal.position.x, goal.position.y)
         #self.map_view.goalVisible[itemKey] = True
-        
+
+        self.startTime = rospy.Time.now()
         self.score = None
+
         
+        self.stateTimer.start(100)
+                
         self.btnDone.setFocus()
         self.grabKeyboard()
+
+    def pushTelemetry(self):
+        self.onTelemetry.emit('NavTaskWidget', self.makeStateJSON())
         
     def resumePhysics(self):
          try:
@@ -265,7 +274,9 @@ class NavTaskWidget(QSplitter):
             totalDist = self.l2dist((self.currentGoal[0], self.currentGoal[1]),
                                      (self.startPos[0], self.startPos[1]))
             self.score = 1.0 - distToGoal / totalDist
-            self.btnDone.setText('Score: %1.2f, press for next task' % self.score)
+            elapsedTime = self.finalTime - self.startTime 
+            self.btnDone.setText('Score: %1.2f, time: %1.1f sec - Get Next Task' % (self.score, elapsedTime.to_sec()))
+            self.stateTimer.stop()
         else:
             #Clean up the goals and the traverses
             self.map_view.removeGoal('*')
@@ -366,7 +377,24 @@ class NavTaskWidget(QSplitter):
     def mousePressEvent(self, evt):
         #print 'Sizes:', self.sizes()
         pass
-
+    
+    def makeStateJSON(self):
+        #Produce a Python dict, then encode to JSON
+        '''
+        Capture:
+        current lin vel
+        current ang vel
+        current pose
+        goal position
+        '''
+        state = dict()
+        state['pose'] = self.robot_state_latest
+        state['goal'] = self.currentGoal
+        state['linVel'] = self.linVelSlider.getValue()
+        state['angVel'] = self.angVelSlider.getValue()
+        
+        return json.dumps(state)
+    
     def keyPressEvent(self, evt):
         evt.accept()
         #print 'Got keypress:', evt.key()
@@ -424,7 +452,7 @@ class TerrainView(QGraphicsView):
                         (int(random.random()*255),int(random.random()*255),int(random.random()*255)),
                         (int(random.random()*255),int(random.random()*255),int(random.random()*255)) ]
         
-        self._scene = QGraphicsScene()
+        self._scene = QGraphicsScene(self)
         self.setScene(self._scene)
         
         self.traverses = dict()
@@ -708,7 +736,7 @@ class CamView(QGraphicsView):
         super(CamView,self).__init__()
         self._parent = parent
 
-        self.setScene(QGraphicsScene())
+        self.setScene(QGraphicsScene(self))
         self._imageSub = rospy.Subscriber(cam_topic, Image, self.image_cb)
         self.w = 0
         self.h = 0

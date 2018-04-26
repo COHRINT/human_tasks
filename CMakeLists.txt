@@ -33,6 +33,7 @@ add_message_files(
   Grasping.msg
   Navigation.msg
   AttentionTask.msg
+  UITelemetry.msg
 )
 add_service_files(
   FILES

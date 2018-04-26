@@ -3,6 +3,7 @@ float32 score
 float32 duration
 float32 windVel
 float32 windDir
+int16 scenarioIndex
 time startTime
 time endTime
 uint8 difficulty

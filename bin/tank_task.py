@@ -6,6 +6,7 @@ import math
 import rospy
 import signal
 import time
+import json
 
 import numpy as np
 from PyQt5.QtGui import *
@@ -19,6 +20,8 @@ from QFuelGauge import *
 from QArrow import *
                 
 class TankWidget(QWidget):
+    onTelemetry = pyqtSignal(str, str)
+    
     def __init__(self, parent=None):
         super(TankWidget, self).__init__(parent)
         mainLayout = QVBoxLayout()
@@ -39,6 +42,7 @@ class TankWidget(QWidget):
         
         self.timer = QTimer(self)
         map(self.timer.timeout.connect, [self.tankView.updateFuel, self.updateTicks])
+
         self.start()
 
     def setWorkloadParams(self, msg):
@@ -70,6 +74,21 @@ class TankWidget(QWidget):
             if np.random.uniform() < self.pClose:
                 print 'Closing valve randomly'
                 self.tankView.closeValve()
+                
+        #Piggyback off of the timer at 10hz to push a telemetry message:
+        #probably a better way to get the name of the class, but since its Qt, it's a sip_wrapper
+        self.onTelemetry.emit('TankWidget', self.makeStateJSON())
+                
+    def makeStateJSON(self):
+        #Produce a Python dict, then encode to JSON
+        #Tank state defined by level and valve state
+
+        state = dict()
+        state['valve'] = self.tankView.valveState
+        state['level'] = self.tankView.fuelGauge.fuelLevel
+        state['pClose'] = self.pClose
+        return json.dumps(state)
+    
     def pause(self):
         self.stop()
 
@@ -164,8 +183,17 @@ class TankView(QGraphicsView):
             self.fuelLow.emit()
         elif self.fuelGauge.fuelLevel > self.fuelLowHigh[1]:
             self.fuelHigh.emit()
-
+            
         
+    def makeStateJSON(self):
+        #Produce a Python dict, then encode to JSON
+        #Tank state defined by level and valve state
+
+        state = dict()
+        state['valve'] = self.valveState
+        state['level'] = self.fuelGauge.fuelLevel
+        return json.dumps(state)
+    
     def closeValve(self):
         self.valveState = False
         self.fuelValve.setColor(QColor(Qt.red))
@@ -179,6 +207,10 @@ class TankView(QGraphicsView):
         #implement a mousing interface - translate and rotate
         #sceneCoords = self.mapToScene(event.pos())
         #print sceneCoords
+
+        #Telemetry on mouse clicks...
+        self.parent().onTelemetry.emit('TankWidget', self.parent().makeStateJSON())
+           
         if event.button() == Qt.LeftButton:
             if self.valveState:
                 self.closeValve()
