@@ -513,7 +513,7 @@ class GraspView(QGraphicsView):
         sceneCoords = self.mapToScene(event.pos())
         #print 'Button:', event.button()
         
-        '''
+       
         if event.button() == Qt.LeftButton:
             self._scene.removeItem(self.objItem)
             self.addObjectPolygon(self.srcPolygon)
@@ -526,15 +526,26 @@ class GraspView(QGraphicsView):
                 self._scene.removeItem(self.isectItem)
             if not self.gripAreaItem is None:
                 self._scene.removeItem(self.gripAreaItem)
-                
-        elif event.button() == Qt.RightButton:
-    
-            print 'Polygon:',
-            poly = self.objItem.polygon()
-            for j in range(0, poly.count()):
-                print '(', poly.value(j).x(), ',', poly.value(j).y(), ') ',
-            print 'Score:', self.getScore()
-        '''
+      
+        
+        if event.button() == Qt.RightButton:
+            #Save the polygon to a file to be loaded later
+            self.polyCount += 1
+            print 'Polygon count:', self.polyCount
+            polyFile = open('polygons.csv', 'a')
+
+            polygon = self.objItem.polygon()
+
+            difficulty = QInputDialog.getInt(self, 'Difficulty rating',
+                                             'Difficulty:', 0, 0, 2, 1)
+            
+            polyFile.write('%d,' % difficulty[0])
+            polyFile.write('%d' % polygon.count())
+            for index in range(0, polygon.count()):
+                polyFile.write(',%1.2f, %1.2f' % (polygon.value(index).x(), polygon.value(index).y()))
+            polyFile.write('\n')
+            polyFile.close()
+
         
         if event.button() == 8: #the little button closest to the battery indicator on my trackball
             #Save the polygon to a file to be loaded later
@@ -583,7 +594,7 @@ def main():
         else:
             graspApp = GraspingWidget(None)    
 
-	
+	graspApp.reinitialize.emit(QPolygonF())
             
         mainWindow = QMainWindow()
         mainWindow.setWindowTitle('Grasping')
