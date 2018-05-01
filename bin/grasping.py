@@ -30,7 +30,9 @@ class GraspingWidget(QWidget):
     def __init__(self, srcObject):
         super(GraspingWidget, self).__init__()
         self.reinitialize.connect(self.initialize)
+        self.debugMode = False
         self.initUI()
+
         
     def initialize(self, srcObject):
         #Recreate the UI for a new run
@@ -62,6 +64,8 @@ class GraspingWidget(QWidget):
         self.setWindowTitle('Grasping')
         mainLayout = QVBoxLayout()
         self.graspView = GraspView(parent = self)
+        self.graspView.debugMode = self.debugMode
+        
         self.w = 500
         self.h = 500
         
@@ -176,6 +180,8 @@ class GraspView(QGraphicsView):
         dirBounds = directions.boundingRect()
         directions.setPos(QPointF(self.w - dirBounds.width(), 0.0))
 
+        self.debugMode = False
+        
     def newScenario(self, obj):
         #Reset the gripper, etc with a new polygon
         #Since the center of the gripper isn't the center of the bounding box, this needs some help...
@@ -512,7 +518,8 @@ class GraspView(QGraphicsView):
         #implement a mousing interface - translate and rotate
         sceneCoords = self.mapToScene(event.pos())
         #print 'Button:', event.button()
-        
+        if self.debugMode == False:
+            return
        
         if event.button() == Qt.LeftButton:
             self._scene.removeItem(self.objItem)
