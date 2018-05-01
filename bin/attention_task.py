@@ -33,7 +33,7 @@ class AttentionWidget(QWidget):
 	super(AttentionWidget,self).__init__()
 
         self.getLambda = rospy.Service('~GetAttentionLambda', GetCurrentLambda, self.get_lambda)
-        self.changeLambda = rospy.Service('~SetAttentionLambda', ChangeLambda, self.change_lambda)
+        self.changeLambda = rospy.Service('~set_attention_params', SetAttentionParams, self.change_lambda)
         self.attentionPub = rospy.Publisher('~attention', AttentionTask, queue_size=10)
         
         self.exp_parameter = 5.0
@@ -162,7 +162,7 @@ class AttentionWidget(QWidget):
         return resp
 
     def change_lambda(self,req):
-        self.exp_parameter = req.change
+        self.exp_parameter = req.newParam
         #print(req.change)
         return []
 
