@@ -18,8 +18,34 @@ from human_tasks.msg import *
 
 import rospy
 
+class QFeedbackDialog(QDialog):
+    def __init__(self, parent=None):
+        super(QFeedbackDialog, self).__init__(parent)
+        self.setWindowTitle('Subject Feedback')
+        layout = QVBoxLayout()
+        lblPrompt = QLabel('Please enter any comments or questions about the experiment:')
+        layout.addWidget(lblPrompt)
+
+        self.txtComments = QTextEdit(self)
+        layout.addWidget(self.txtComments)
+        self.btnDone = QPushButton('Done')
+        self.btnDone.clicked.connect(self.btnDone_onclick)
+
+        layout.addWidget(self.btnDone)
+        self.setLayout(layout)
+
+    def btnDone_onclick(self):
+        self.close()
+        
+    def getFeedback(self):
+        return self.txtComments.toPlainText()
+
+class QSubjectParamSelector(QDialog):
+    def __init__(self, parent=None):
+        super(QSubjectParamDialog, self).__init__(parent)
+        
 class ExperimentView(QSplitter):
-    visibilityChanged = pyqtSignal(bool)
+    visibilityChanged = pyqtSignal(str, bool)
     progressChanged = pyqtSignal(int, int)
     layoutChanged = pyqtSignal(QWidget)
     paramSelectorChanged = pyqtSignal(int)
@@ -39,6 +65,8 @@ class ExperimentView(QSplitter):
         self.paramCondition = QWaitCondition()
         
         self.telemetryPub = rospy.Publisher('~telemetry', UITelemetry, queue_size=10)
+        self.feedbackPub = rospy.Publisher('~feedback', Feedback, queue_size=10)
+        self.progressPub = rospy.Publisher('~progress', UIProgress, queue_size=10)
         
     def startServices(self):
         self.graspSvc = rospy.Service('~tasks/grasp_task', RunGraspTask, self.svcGraspTask)
@@ -71,10 +99,18 @@ class ExperimentView(QSplitter):
         return resp
     
     def svcUIState(self, req):
-        print 'Setting UI state:', req.visible
-        self.visibilityChanged.emit(req.visible)
+        #print 'Setting UI component:', req.component, ' to state:', req.visible
+        self.visibilityChanged.emit(req.component, req.visible)
         return SetUIStateResponse()
 
+    def runFeedbackDialog(self):
+        self.feedbackDialog.exec_()
+        #print 'Got feedback:', self.feedbackDialog.getFeedback()
+        msg = Feedback()
+        msg.header.stamp = rospy.Time.now()
+        msg.feedback = self.feedbackDialog.getFeedback()
+        self.feedbackPub.publish(msg)
+        
     def onParamSelectorChanged(self, paramCount):
         #Twiddle visibility of the UI to show the selector thing
         #The signal includes the number of scenarios (so we don't touch UI from the service call)
@@ -91,27 +127,52 @@ class ExperimentView(QSplitter):
     def onProgressChanged(self, current, total):
         self.expProgressLabel.updateValue(str(current))
         self.scenarioTotalLabel.updateValue(str(total))
+        msg = UIProgress()
+        msg.header.stamp = rospy.Time.now()
+        msg.current = current
+        msg.total = total
+        self.progressPub.publish(msg)
         
-    def onVisibilityChanged(self, visible):
-        if visible:
-            #Show widgets
-            for index in range(0, self.count()):
-                self.widget(index).setVisible(True)
-            self.contactExp.setVisible(False)
-            
-            print 'Resuming'
-            self.attentionTask.resume()
-            self.tankTask.resume()
-        else:
-            #Hide the widgets and such
-            for index in range(0, self.count()):
-                self.widget(index).setVisible(False)
+    def onVisibilityChanged(self, component, visible):
 
-            #Show the Done message
-            self.contactExp.setVisible(True)
-            print 'Pausing'
-            self.attentionTask.pause()
-            self.tankTask.pause()
+        #This isn't the best way to do this, but effective...
+    
+        if visible:
+            if component == 'ExperimentView':
+
+                #Contact experimenter is a widget, preserve its visibilty
+                contactVis = self.contactExp.isVisible()
+                
+                for index in range(0, self.count()):
+                    self.widget(index).setVisible(True)
+                self.contactExp.setVisible(contactVis)
+                
+                print 'Resuming'
+                self.attentionTask.resume()
+                self.tankTask.resume()
+            elif component == 'contactExp':
+                self.contactExp.setVisible(True)
+            elif component == 'QFeedbackDialog':
+                self.runFeedbackDialog()
+            else:
+                print 'Set visible: Unknown component:', component
+        else:
+            if component == 'ExperimentView':
+                contactVis = self.contactExp.isVisible()
+                
+                for index in range(0, self.count()):
+                    self.widget(index).setVisible(False)
+                    
+                self.contactExp.setVisible(contactVis)
+                
+                print 'Pausing'
+                self.attentionTask.pause()
+                self.tankTask.pause()
+            elif component == 'contactExp':
+                self.contactExp.setVisible(False)
+            else:
+                print 'Set visible: Unknown component:', component
+
 
     def onLayoutChanged(self, desiredWidget):
         for index in range(0, self.taskLayout.count()):
@@ -341,7 +402,10 @@ class ExperimentView(QSplitter):
         self.paramDialog = QDialog()
         self.paramDialog.setWindowTitle('Subject Index')
         self.paramDialog.setLayout(paramIndexLayout)
-            
+
+        #Make the feedback dialog for later:
+        self.feedbackDialog = QFeedbackDialog()
+        
         print 'Pausing'
         self.attentionTask.pause()
         self.tankTask.pause()

@@ -36,6 +36,8 @@ add_message_files(
   UITelemetry.msg
   SubjectParams.msg
   Workload.msg
+  Feedback.msg
+  UIProgress.msg
 )
 
 add_service_files(

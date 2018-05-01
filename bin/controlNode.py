@@ -99,9 +99,9 @@ class ControlNode(object):
             #1: vertex count
             #2-3, 4-5, 6-7, etc: polygon vertices in (x,y) order
 
-            for vertex in range(0,int(self.graspTasks[index][1]),2):
-                req.polygonX.append(float(self.graspTasks[index][2 + vertex]))
-                req.polygonY.append(float(self.graspTasks[index][2 + vertex + 1]))
+            for vertex in range(0,int(self.graspTasks[index][1])):
+                req.polygonX.append(float(self.graspTasks[index][2*vertex + 2]))
+                req.polygonY.append(float(self.graspTasks[index][2*vertex + 1 + 2]))
             req.objectIndex = index
             
             resp = grasp_task(req)
@@ -155,7 +155,7 @@ class ControlNode(object):
         masterParams = pickle.load(paramsFile)
 
         #populate the particulars;
-        self.blockSize = 2 #masterParams['tasksPerBlock']
+        self.blockSize = 3 #masterParams['tasksPerBlock']
         self.workloadParams = masterParams['workloadParams']
         self.attentionParams = masterParams['attentionParams']
         
@@ -235,12 +235,12 @@ class ControlNode(object):
         except rospy.ServiceException, e:
             print "Service call failed: %s"%e
     
-    def setUIState(self, state):
+    def setUIState(self, component, state):
         try:
             set_visible = rospy.ServiceProxy(self.experimentNS+'/set_visibility', SetUIState)
             req = SetUIStateRequest()
-            print 'Setting UI visible: ', state
-
+            print 'Setting UI component ', component, ' visible: ', state
+            req.component = component
             req.visible = state
             resp = set_visible(req)
             return 
@@ -261,7 +261,8 @@ class ControlNode(object):
         
         except rospy.ServiceException, e:
             print "Service call failed: %s"%e
-            
+
+        
     def runTasks(self):
         #Wait for the UI to be available:
         rospy.wait_for_service(self.experimentNS+'/set_visibility', 20)
@@ -270,9 +271,12 @@ class ControlNode(object):
         paramIndex = self.getUISubjectParams()
 
         print 'Using subject param index:', paramIndex
+
+        #hide the contact box:
+        self.setUIState('contactExp', False)
         
         #Enable the task execution UI:
-        self.setUIState(True)
+        self.setUIState('ExperimentView', True)
         lastBlockIndex = -1
         for index, scenario  in enumerate(self.scenarios):
             #Set the workload / attention params (if needed)
@@ -294,7 +298,13 @@ class ControlNode(object):
             else:
                 print 'Unknown scenario type: ', scenario[0]
 
-        self.setUIState(False)
+        #Disable the task execution UI:
+        self.setUIState('ExperimentView', False)
+        #Show the contact box:
+        self.setUIState('contactExp', True)
+        #Show the feedback window
+        self.setUIState('QFeedbackDialog', True)
+
         
 class GazeboInterface():
     def __init__(self, gzNS='/gazebo'):
