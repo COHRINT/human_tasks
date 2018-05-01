@@ -1,0 +1,5 @@
+Header header
+float32 pClose
+uint32 totalTicks
+uint32 lowTicks
+uint32 highTicks

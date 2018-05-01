@@ -34,10 +34,13 @@ add_message_files(
   Navigation.msg
   AttentionTask.msg
   UITelemetry.msg
+  SubjectParams.msg
+  Workload.msg
 )
+
 add_service_files(
   FILES
-  ChangeLambda.srv
+  SetAttentionParams.srv
   GetCurrentLambda.srv
   SetWorkloadParams.srv
   RunNavTask.srv
@@ -45,6 +48,7 @@ add_service_files(
   RunSampleTask.srv
   SetUIState.srv
   SetProgress.srv
+  GetSubjectParamIndex.srv
 )
 
 ## Generate actions in the 'action' folder

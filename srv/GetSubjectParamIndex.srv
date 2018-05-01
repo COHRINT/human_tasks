@@ -1,0 +1,4 @@
+#Service call to the UI to display the list of subject params available
+int16 paramsCount
+---
+int16 selectedParams
