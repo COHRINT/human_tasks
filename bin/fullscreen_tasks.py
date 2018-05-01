@@ -1,6 +1,7 @@
 #!/usr/bin/env python2
 import sys
 import pdb
+import json
 
 from PyQt5.QtGui import *
 from PyQt5.QtCore import * 
@@ -21,6 +22,7 @@ class ExperimentView(QSplitter):
     visibilityChanged = pyqtSignal(bool)
     progressChanged = pyqtSignal(int, int)
     layoutChanged = pyqtSignal(QWidget)
+    paramSelectorChanged = pyqtSignal(int)
     
     def __init__(self, parent=None):
         super(ExperimentView, self).__init__(parent)
@@ -32,6 +34,9 @@ class ExperimentView(QSplitter):
         self.visibilityChanged.connect(self.onVisibilityChanged)
         self.progressChanged.connect(self.onProgressChanged)
         self.layoutChanged.connect(self.onLayoutChanged)
+        self.paramSelectorChanged.connect(self.onParamSelectorChanged)
+        self.paramLock = QMutex()
+        self.paramCondition = QWaitCondition()
         
         self.telemetryPub = rospy.Publisher('~telemetry', UITelemetry, queue_size=10)
         
@@ -41,16 +46,48 @@ class ExperimentView(QSplitter):
         self.navSvc = rospy.Service('~tasks/nav_task', RunNavTask, self.svcNavTask)
         self.stateSvc = rospy.Service('~set_visibility', SetUIState, self.svcUIState)
         self.progressSvc = rospy.Service('~set_progress', SetProgress, self.svcProgress)
+        self.paramIndexSvc = rospy.Service('~get_subject_index', GetSubjectParamIndex, self.svcGetParamIndex)
+
+        #These are handled by their widgets, not by the main UI
+        #self.attentionSvc = rospy.Service('~set_attention_params', SetAttentionParams, self.svcAttentionParams)
+        #self.workloadSvc = rospy.Service('~set_workload_params', SetWorkloadParams, self.svcWorkloadParams)
         
     def onTaskComplete(self):
         print 'Waking up service call'
         self.taskCondition.wakeOne() 
-        
+
+    def svcGetParamIndex(self, req):
+        #Display some UI to get the subject parameter index in use:
+        #The request has the upper bound in it:
+        self.paramSelectorChanged.emit(req.paramsCount)
+
+        #Wait on a condition variable before returning:
+        self.paramLock.lock()
+        self.paramCondition.wait(self.paramLock)
+
+        #Woken up from the button press to select
+        resp = GetSubjectParamIndexResponse()
+        resp.selectedParams = self.selectedParams
+        return resp
+    
     def svcUIState(self, req):
         print 'Setting UI state:', req.visible
         self.visibilityChanged.emit(req.visible)
         return SetUIStateResponse()
 
+    def onParamSelectorChanged(self, paramCount):
+        #Twiddle visibility of the UI to show the selector thing
+        #The signal includes the number of scenarios (so we don't touch UI from the service call)
+        #Also, add items to the QComboBox
+        self.contactExp.setVisible(False)
+
+        self.paramIndexBox.clear()
+        for index in range(0, paramCount):
+            self.paramIndexBox.addItem(str(index))
+            
+        self.paramDialog.exec_() #run an event loop for the wee dialog
+        
+        
     def onProgressChanged(self, current, total):
         self.expProgressLabel.updateValue(str(current))
         self.scenarioTotalLabel.updateValue(str(total))
@@ -61,6 +98,7 @@ class ExperimentView(QSplitter):
             for index in range(0, self.count()):
                 self.widget(index).setVisible(True)
             self.contactExp.setVisible(False)
+            
             print 'Resuming'
             self.attentionTask.resume()
             self.tankTask.resume()
@@ -86,11 +124,9 @@ class ExperimentView(QSplitter):
         return SetProgressResponse()
     
     def svcGraspTask(self, req):
-        #print 'Setting grasp'
-        for index in range(0, self.taskLayout.count()):
-            self.taskLayout.itemAt(index).widget().setVisible(False)
+        self.layoutChanged.emit(self.graspTask)
+        #Fire a signal so that the grasp task touches UI in the GUI thread (we're in a ROS thread in the service call)
 
-        #Fire a signal so that the grasp task touches UI in the GUI thread (we're in a ROS thread)
         print 'Setting up polygon:', req.objectIndex
         
         obj = QPolygonF()
@@ -127,7 +163,8 @@ class ExperimentView(QSplitter):
 
     def svcSampleTask(self, req):
         #print 'Setting sample'
-
+        self.layoutChanged.emit(self.sampleTask)
+        
         self.taskLock.lock()
         #post a signal to the sampleTask telling it to re-initialize
         startTime = rospy.Time.now()
@@ -217,8 +254,17 @@ class ExperimentView(QSplitter):
         filler = QWidget()
         #filler.setFixedHeight(leftPane.height()/6)
         leftPane.addWidget(filler)
-        leftPane.addWidget(self.attentionTask)
-        leftPane.addWidget(self.tankTask)
+        commBox = QGroupBox('Communications Console')
+        commLayout = QVBoxLayout()
+        commLayout.addWidget(self.attentionTask)
+        commBox.setLayout(commLayout)
+        leftPane.addWidget(commBox)
+
+        tankBox = QGroupBox('Hydroponics Control')
+        tankLayout = QVBoxLayout()
+        tankLayout.addWidget(self.tankTask)
+        tankBox.setLayout(tankLayout)
+        leftPane.addWidget(tankBox)
         leftPane.setSizes((leftPane.height()/8, leftPane.height()/4, leftPane.height()/8, leftPane.height()/2))
 
         
@@ -270,6 +316,32 @@ class ExperimentView(QSplitter):
             self.widget(index).setVisible(False)
         
         self.contactExp.setVisible(True)
+
+        #Make the subject parameter requester UI
+        paramIndexLayout = QVBoxLayout()
+        paramIndexMsg = QLabel('Select a subject profile:')
+        paramIndexMsg.setStyleSheet('font-weight: bold; font-size:20pt')
+        paramIndexMsg.setAlignment(Qt.AlignCenter)
+        paramIndexLayout.addWidget(paramIndexMsg)
+
+        self.paramIndexBox = QComboBox()
+        paramIndexLayout.addWidget(self.paramIndexBox)
+
+        paramIndexSelect = QPushButton('Select')
+        paramIndexSelect.clicked.connect(self.btnParamIndexSelect_clicked)
+        
+        paramIndexLayout.addWidget(paramIndexSelect)
+
+        #self.paramIndex = QWidget()
+        #self.paramIndex.setLayout(paramIndexLayout)
+
+        #Parameter selection is done via QDialog
+        #self.addWidget(self.paramIndex)
+        #self.paramIndex.setVisible(False)
+        self.paramDialog = QDialog()
+        self.paramDialog.setWindowTitle('Subject Index')
+        self.paramDialog.setLayout(paramIndexLayout)
+            
         print 'Pausing'
         self.attentionTask.pause()
         self.tankTask.pause()
@@ -284,6 +356,13 @@ class ExperimentView(QSplitter):
         
         self.showFullScreen()
 
+    def btnParamIndexSelect_clicked(self):
+        print 'Selected:', self.paramIndexBox.currentIndex()
+        self.selectedParams = self.paramIndexBox.currentIndex()
+        self.paramDialog.done(0) #stop the local event loop
+        self.paramCondition.wakeOne()
+        
+        
     def onTelemetry(self, src, jsonState):
         #Publish the given telemetry message:
         msg = UITelemetry()
@@ -299,10 +378,17 @@ class ExperimentView(QSplitter):
             print 'Pausing'
             self.attentionTask.pause()
             self.tankTask.pause()
+            state = dict()
+            state['paused'] = True
+            self.onTelemetry('main_ui', json.dumps(state))
+            
         else:
             print 'Resuming'
             self.attentionTask.resume()
             self.tankTask.resume()
+            state = dict()
+            state['paused'] = False
+            self.onTelemetry('main_ui', json.dumps(state))
             
     def btnQuit_onclick(self, evt):
         print 'Closing'
