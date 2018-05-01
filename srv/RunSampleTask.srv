@@ -1,4 +1,4 @@
-uint16 windDir
-uint16 windVel
+float32 windDir
+float32 windVel
 ---
 human_tasks/SampleHandling report
