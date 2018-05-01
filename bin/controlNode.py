@@ -6,9 +6,11 @@ import os, sys, string, csv
 import rospy
 import time
 import pdb
+import pickle
+
 import subprocess
 
-from enum import Enum
+from taskEnums import *
 
 from human_tasks.msg import *
 from human_tasks.srv import *
@@ -25,15 +27,7 @@ import copy
 
 import std_srvs.srv
 
-class TaskType(Enum):
-    Navigation = 0
-    Grasping = 1
-    Handling = 2
-    
-class TaskDifficulty(Enum):
-    Easy = 0
-    Medium = 1
-    Hard = 2
+
     
 class ControlNode(object):
     def __init__(self):
@@ -44,10 +38,13 @@ class ControlNode(object):
         graspTaskFile = rospy.get_param('~graspTasks', None)
         handlingTaskFile = rospy.get_param('~handlingTasks', None)
 
+        subjectParamFile = rospy.get_param('~subjectParams', None)
+        
         #Fire up a publisher for each task type:
         self.navPub = rospy.Publisher('~nav_task', Navigation, queue_size=10)
         self.graspPub = rospy.Publisher('~grasp_task', Grasping, queue_size=10)
         self.handlingPub = rospy.Publisher('~sample_task', SampleHandling, queue_size=10)
+        self.workloadPub = rospy.Publisher('~workload_task', Workload, queue_size=10)
         
         #For each task type, each row represents a scenario that can be run
         #So for example, for grasping, each row in the polygons.csv file is a scenario
@@ -56,7 +53,8 @@ class ControlNode(object):
         self.graspTasks = self.loadTaskFile(graspTaskFile)
         self.handlingTasks = self.loadTaskFile(handlingTaskFile)
         self.scenarios = self.loadTaskFile(scenarioFile)
-        
+        self.loadSubjectParams(subjectParamFile)
+
     def runHandlingTask(self, index):
         #Make the service call for the scenario with index
         try:
@@ -70,8 +68,8 @@ class ControlNode(object):
             #1: wind direction
             #2: wind velocity
 
-            req.windDir = int(self.handlingTasks[index][1])
-            req.windVel = int(self.handlingTasks[index][2])
+            req.windDir = float(self.handlingTasks[index][1])
+            req.windVel = float(self.handlingTasks[index][2])
             
             resp = sample_task(req)
 
@@ -151,6 +149,16 @@ class ControlNode(object):
         except rospy.ServiceException, e:
             print "Service call failed: %s"%e
             
+    def loadSubjectParams(self, fileName):
+        #Load the subject params file:
+        paramsFile  = open(fileName, 'rb')
+        masterParams = pickle.load(paramsFile)
+
+        #populate the particulars;
+        self.blockSize = 2 #masterParams['tasksPerBlock']
+        self.workloadParams = masterParams['workloadParams']
+        self.attentionParams = masterParams['attentionParams']
+        
     def loadTaskFile(self, fileName):
         #Given a filename of tasks, load it
         #Each task file is a csv file of parameters
@@ -163,6 +171,70 @@ class ControlNode(object):
             tasks.append(row) #All parameters are added as a list for this index
         return tasks
 
+    def getSubjectParamMapping(self, attention, workload):
+        #Map from easy/medium/hard to actual values for the attention / workload activities
+        att = 0.0
+        work = 0.0
+        
+        if attention == TaskDifficulty.Easy:
+            att = 10.0
+        elif attention == TaskDifficulty.Medium:
+            att = 5.0
+        elif attention == TaskDifficulty.Hard:
+            att = 1.0
+
+        if workload == TaskDifficulty.Easy:
+            work = 0.001
+        elif workload == TaskDifficulty.Medium:
+            work = 0.01
+        elif workload == TaskDifficulty.Hard:
+            work = 0.05
+
+        return (att, work)
+    
+    def setSubjectParams(self, attention, workload):
+        #Get actual values from the enums:
+        (att, work) = self.getSubjectParamMapping(attention, workload)
+        
+        #Set the attention and workload via service calls:
+        try:
+            set_attention = rospy.ServiceProxy(self.experimentNS+'/set_attention_params', SetAttentionParams)
+            req = SetAttentionParamsRequest()
+            req.newParam = att
+            resp = set_attention(req)
+            
+        except rospy.ServiceException, e:
+            print "Service call failed: %s"%e
+
+        try:
+            set_workload = rospy.ServiceProxy(self.experimentNS+'/set_workload_params', SetWorkloadParams)
+            req = SetWorkloadParamsRequest()
+            req.pClose = work
+            resp = set_workload(req)
+
+            #Publish the report from the workload widget
+
+            msg = Workload()
+            msg.header.stamp = rospy.Time.now()
+            msg.pClose = resp.pClose
+            msg.totalTicks = resp.totalTicks
+            msg.lowTicks = resp.lowTicks
+            msg.highTicks = resp.highTicks
+            
+        except rospy.ServiceException, e:
+            print "Service call failed: %s"%e
+            
+    def getUISubjectParams(self):
+        try:
+            get_paramIndex = rospy.ServiceProxy(self.experimentNS+'/get_subject_index', GetSubjectParamIndex)
+            req = GetSubjectParamIndexRequest()
+            req.paramsCount = len(self.workloadParams) #indexed by subject count first, then block index second
+
+            resp = get_paramIndex(req)
+            return resp.selectedParams
+        except rospy.ServiceException, e:
+            print "Service call failed: %s"%e
+    
     def setUIState(self, state):
         try:
             set_visible = rospy.ServiceProxy(self.experimentNS+'/set_visibility', SetUIState)
@@ -174,6 +246,7 @@ class ControlNode(object):
             return 
         except rospy.ServiceException, e:
             print "Service call failed: %s"%e
+            
     def setUIProgress(self, current, total):
         try:
             set_progress = rospy.ServiceProxy(self.experimentNS+'/set_progress', SetProgress)
@@ -192,11 +265,24 @@ class ControlNode(object):
     def runTasks(self):
         #Wait for the UI to be available:
         rospy.wait_for_service(self.experimentNS+'/set_visibility', 20)
+
+        #Get the subject params:
+        paramIndex = self.getUISubjectParams()
+
+        print 'Using subject param index:', paramIndex
         
-        #Enable the UI:
+        #Enable the task execution UI:
         self.setUIState(True)
-        
+        lastBlockIndex = -1
         for index, scenario  in enumerate(self.scenarios):
+            #Set the workload / attention params (if needed)
+            newBlockIndex = int(index / self.blockSize)
+            if newBlockIndex <> lastBlockIndex:
+                print 'Updating block ', newBlockIndex, ' w/ attention:',  self.attentionParams[paramIndex][newBlockIndex], ' workload:', self.workloadParams[paramIndex][newBlockIndex]
+                self.setSubjectParams(self.attentionParams[paramIndex][newBlockIndex],
+                                      self.workloadParams[paramIndex][newBlockIndex])
+                lastBlockIndex = newBlockIndex
+                
             self.setUIProgress(index, len(self.scenarios))
             #first parameter is the subtask type, second is the scenario index of that subtask
             if int(scenario[0]) == TaskType.Navigation.value:
