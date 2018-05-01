@@ -177,8 +177,8 @@ class NavTaskWidget(QSplitter):
 
         #self.setSizes([767, 262, 25])
         #Disable the sizer handles
-        #self.handle(1).setEnabled(False)
-        #self.handle(2).setEnabled(False)
+        self.handle(1).setEnabled(False)
+        self.handle(2).setEnabled(False)
         
         #Teleport the robot to the start position
         self.setRobotPosition((start.position.x, start.position.y, start.position.z), start.orientation)
