@@ -8,7 +8,7 @@
    
     
     <!-- Gazebo with Lus Chasma -->
-    <include file="$(find scenario_runner)/launches/lus_chasma.launch"/>
+    <include file="$(find scenario_runner)/launches/ius_chasma.launch"/>
     <param name="gazebo/gravity_z" value="-3.0"/>
     
     <param name="use_sim_time" value="False"/>
@@ -35,6 +35,7 @@
       <param name="navTasks" value="$(find human_tasks)/config/navtasks.csv"/>
       <param name="graspTasks" value="$(find human_tasks)/config/grasptasks.csv"/>
       <param name="handlingTasks" value="$(find human_tasks)/config/handlingtasks.csv"/>
+      <param name="subjectParams" value="$(find human_tasks)/config/subject_params.pkl"/>
       
     </node>
     
