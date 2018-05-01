@@ -241,7 +241,7 @@ class SampleView(QGraphicsView):
     
     def setWindParams(self, windDir, windVel):
         self.windDir.setRotation(windDir)
-        self.windVel.setText('Speed: %d' % windVel)
+        self.windVel.setText('Speed: %1.1f' % windVel)
         velBounds = self.windVel.boundingRect()
         dirBounds = self.windDir.boundingRect()
         #center the label
