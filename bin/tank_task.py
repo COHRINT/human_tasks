@@ -38,7 +38,7 @@ class TankWidget(QWidget):
         self.tankView.fuelLow.connect(self.onFuelLow)
         self.tankView.fuelHigh.connect(self.onFuelHigh)
 
-        self.paramsSrv = rospy.Service('~SetWorkloadParams', SetWorkloadParams, self.setWorkloadParams)
+        self.paramsSrv = rospy.Service('~set_workload_params', SetWorkloadParams, self.setWorkloadParams)
         
         self.timer = QTimer(self)
         map(self.timer.timeout.connect, [self.tankView.updateFuel, self.updateTicks])
@@ -47,10 +47,12 @@ class TankWidget(QWidget):
 
     def setWorkloadParams(self, msg):
         #Set the prob of closing the valve to the given value
+        oldPClose = self.pClose
         self.pClose = msg.pClose
 
         #Produce a report for the return
         resp = SetWorkloadParamsResponse()
+        resp.pClose = oldPClose
         resp.totalTicks = self.tickCount
         resp.lowTicks = self.ticksLow
         resp.highTicks = self.ticksHigh
@@ -165,6 +167,7 @@ class TankView(QGraphicsView):
         
 
         #And some directions:
+
         directions = QGraphicsSimpleTextItem('Click to open/close the valve')
         directions.setFont(QFont("SansSerif", max(self.h / 60.0,12), QFont.Bold))
         self.scene().addItem(directions)
