@@ -45,6 +45,9 @@ class ControlNode(object):
         self.graspPub = rospy.Publisher('~grasp_task', Grasping, queue_size=10)
         self.handlingPub = rospy.Publisher('~sample_task', SampleHandling, queue_size=10)
         self.workloadPub = rospy.Publisher('~workload_task', Workload, queue_size=10)
+
+        self.shouldEnd = False
+        self.earlyEndSvc = rospy.Service('~end_experiment', Empty, self.svcEndExperiment)
         
         #For each task type, each row represents a scenario that can be run
         #So for example, for grasping, each row in the polygons.csv file is a scenario
@@ -155,7 +158,7 @@ class ControlNode(object):
         masterParams = pickle.load(paramsFile)
 
         #populate the particulars;
-        self.blockSize = 3 #masterParams['tasksPerBlock']
+        self.blockSize = masterParams['tasksPerBlock']
         self.workloadParams = masterParams['workloadParams']
         self.attentionParams = masterParams['attentionParams']
         
@@ -220,6 +223,7 @@ class ControlNode(object):
             msg.totalTicks = resp.totalTicks
             msg.lowTicks = resp.lowTicks
             msg.highTicks = resp.highTicks
+            self.workloadPub.publish(msg)
             
         except rospy.ServiceException, e:
             print "Service call failed: %s"%e
@@ -262,6 +266,9 @@ class ControlNode(object):
         except rospy.ServiceException, e:
             print "Service call failed: %s"%e
 
+    def svcEndExperiment(self, req):
+        self.shouldEnd = True
+        return std_srvs.srv.EmptyResponse()
         
     def runTasks(self):
         #Wait for the UI to be available:
@@ -297,6 +304,12 @@ class ControlNode(object):
                 self.runHandlingTask(int(scenario[1]))
             else:
                 print 'Unknown scenario type: ', scenario[0]
+                continue
+
+            if self.shouldEnd:
+                break
+
+           
 
         #Disable the task execution UI:
         self.setUIState('ExperimentView', False)
