@@ -1,0 +1,3 @@
+Header header
+uint16 scenarioIndex
+uint8 taskRating

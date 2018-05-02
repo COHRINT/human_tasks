@@ -38,6 +38,7 @@ add_message_files(
   Workload.msg
   Feedback.msg
   UIProgress.msg
+  TaskRating.msg
 )
 
 add_service_files(

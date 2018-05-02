@@ -12,6 +12,7 @@ from grasping import GraspingWidget
 from sampleHandling import SampleHandlingWidget
 from nav_task import NavTaskWidget
 from QLabeledValue import *
+from taskEnums import *
 
 from human_tasks.srv import *
 from human_tasks.msg import *
@@ -39,7 +40,48 @@ class QFeedbackDialog(QDialog):
         
     def getFeedback(self):
         return self.txtComments.toPlainText()
+    
+class QTaskRatingDialog(QDialog):
+    def __init__(self, parent=None):
+        super(QTaskRatingDialog, self).__init__(parent)
 
+        layout = QVBoxLayout()
+        #group = QGroupBox()
+        self.chkEasy = QRadioButton('Easy')
+        self.chkMed = QRadioButton('Medium')
+        self.chkHard = QRadioButton('Hard')
+
+        layout.addWidget(QLabel('Please rate the difficulty:'))
+        layout.addWidget(self.chkEasy)
+        layout.addWidget(self.chkMed)
+        layout.addWidget(self.chkHard)
+
+        self.btnDone = QPushButton('Done')
+        self.btnDone.clicked.connect(self.btnDone_onclick)
+        layout.addWidget(self.btnDone)
+        
+        self.setLayout(layout)
+
+        self.setWindowTitle('Task Rating')
+        
+    def btnDone_onclick(self):
+        self.close()
+
+    def reset(self):
+        self.chkEasy.setChecked(False)
+        self.chkMed.setChecked(False)
+        self.chkHard.setChecked(False)
+        
+    def getRating(self):
+        if self.chkEasy.isChecked():
+            return TaskDifficulty.Easy
+        elif self.chkMed.isChecked():
+            return TaskDifficulty.Medium
+        elif self.chkHard.isChecked():
+            return TaskDifficulty.Hard
+        else:
+            return 
+        
 class QSubjectParamSelector(QDialog):
     def __init__(self, parent=None):
         super(QSubjectParamDialog, self).__init__(parent)
@@ -67,6 +109,7 @@ class ExperimentView(QSplitter):
         self.telemetryPub = rospy.Publisher('~telemetry', UITelemetry, queue_size=10)
         self.feedbackPub = rospy.Publisher('~feedback', Feedback, queue_size=10)
         self.progressPub = rospy.Publisher('~progress', UIProgress, queue_size=10)
+        self.ratingPub = rospy.Publisher('~user_rating', TaskRating, queue_size=10)
         
     def startServices(self):
         self.graspSvc = rospy.Service('~tasks/grasp_task', RunGraspTask, self.svcGraspTask)
@@ -81,6 +124,7 @@ class ExperimentView(QSplitter):
         #self.workloadSvc = rospy.Service('~set_workload_params', SetWorkloadParams, self.svcWorkloadParams)
         
     def onTaskComplete(self):
+        self.runRatingDialog()
         print 'Waking up service call'
         self.taskCondition.wakeOne() 
 
@@ -104,12 +148,21 @@ class ExperimentView(QSplitter):
         return SetUIStateResponse()
 
     def runFeedbackDialog(self):
-        self.feedbackDialog.exec_()
+        self.feedbackDialog.show()
         #print 'Got feedback:', self.feedbackDialog.getFeedback()
         msg = Feedback()
         msg.header.stamp = rospy.Time.now()
         msg.feedback = self.feedbackDialog.getFeedback()
         self.feedbackPub.publish(msg)
+
+    def runRatingDialog(self):
+        self.ratingDialog.reset()
+        self.ratingDialog.exec_()
+        msg = TaskRating()
+        msg.header.stamp = rospy.Time.now()
+        msg.taskRating = self.ratingDialog.getRating().value
+        msg.scenarioIndex = int(self.expProgressLabel.getValue())
+        self.ratingPub.publish(msg)
         
     def onParamSelectorChanged(self, paramCount):
         #Twiddle visibility of the UI to show the selector thing
@@ -154,6 +207,8 @@ class ExperimentView(QSplitter):
                 self.contactExp.setVisible(True)
             elif component == 'QFeedbackDialog':
                 self.runFeedbackDialog()
+            elif component == 'QTaskRatingDialog':
+                self.runRatingDialog()
             else:
                 print 'Set visible: Unknown component:', component
         else:
@@ -170,6 +225,7 @@ class ExperimentView(QSplitter):
                 self.tankTask.pause()
             elif component == 'contactExp':
                 self.contactExp.setVisible(False)
+
             else:
                 print 'Set visible: Unknown component:', component
 
@@ -405,6 +461,9 @@ class ExperimentView(QSplitter):
 
         #Make the feedback dialog for later:
         self.feedbackDialog = QFeedbackDialog()
+
+        #Task rating dialog:
+        self.ratingDialog = QTaskRatingDialog()
         
         print 'Pausing'
         self.attentionTask.pause()
