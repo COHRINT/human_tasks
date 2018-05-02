@@ -30,7 +30,7 @@
 
     <!-- Control node -->
     <node pkg="human_tasks" type="controlNode.py" name="control_node" output="screen">
-      <param name="scenarios" value="$(find human_tasks)/config/scenarios_two.csv"/>
+      <param name="scenarios" value="$(find human_tasks)/config/scenarios.csv"/>
       <param name="robotURDFFile" value="$(find human_tasks)/config/husky_cam_laser.xacro"/>
       <param name="navTasks" value="$(find human_tasks)/config/navtasks_gazebo.csv"/>
       <param name="graspTasks" value="$(find human_tasks)/config/grasptasks.csv"/>
