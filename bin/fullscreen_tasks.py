@@ -208,7 +208,7 @@ class ExperimentView(QSplitter):
         
         self.telemetryPub = rospy.Publisher('~telemetry', UITelemetry, queue_size=10)
         self.feedbackPub = rospy.Publisher('~feedback', Feedback, queue_size=10)
-        self.progressPub = rospy.Publisher('~progress', UIProgress, queue_size=10)
+        self.progressPub = rospy.Publisher('~progress', UIProgress, queue_size=10, latched=True)
         self.ratingPub = rospy.Publisher('~user_rating', TaskRating, queue_size=10)
         self.tlxPub = rospy.Publisher('~tlx', TLXRating, queue_size=10)
         
