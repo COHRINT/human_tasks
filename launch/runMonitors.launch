@@ -1,0 +1,14 @@
+<launch>
+<include file="./runOneMonitor.launch">
+	 <arg name="machine_name" value="x230"/>
+</include>
+<include file="./runOneMonitor.launch">
+	 <arg name="machine_name" value="x231"/>
+</include>
+<include file="./runOneMonitor.launch">
+	 <arg name="machine_name" value="x232"/>
+</include>
+<include file="./runOneMonitor.launch">
+	 <arg name="machine_name" value="x233"/>
+</include>
+</launch>
