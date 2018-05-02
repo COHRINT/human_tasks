@@ -281,9 +281,11 @@ class ControlNode(object):
 
         #hide the contact box:
         self.setUIState('contactExp', False)
+      
         
         #Enable the task execution UI:
         self.setUIState('ExperimentView', True)
+
         lastBlockIndex = -1
         for index, scenario  in enumerate(self.scenarios):
             #Set the workload / attention params (if needed)
@@ -293,6 +295,9 @@ class ControlNode(object):
                 self.setSubjectParams(self.attentionParams[paramIndex][newBlockIndex],
                                       self.workloadParams[paramIndex][newBlockIndex])
                 lastBlockIndex = newBlockIndex
+                #get a TLX survey for this block
+                if index > 0:
+                    self.setUIState('QTLXDialog', True)
                 
             self.setUIProgress(index, len(self.scenarios))
             #first parameter is the subtask type, second is the scenario index of that subtask

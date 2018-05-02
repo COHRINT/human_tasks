@@ -19,6 +19,106 @@ from human_tasks.msg import *
 
 import rospy
 
+class QLabeledTLXSlider(QWidget):
+    valueChanged = pyqtSignal(int)
+    
+    def __init__(self, labelText, initVal):
+	super(QWidget, self).__init__()
+        self.layout = QHBoxLayout()
+        self.heading = QLabel(labelText)
+        self.label = QLabel(str(initVal))
+        self.label.setAlignment(Qt.AlignCenter)
+        self.label.setStyleSheet('font-weight:bold')
+        self.layout.addWidget(self.heading)
+        self.layout.addWidget(self.label)
+
+        self.minVal = 1
+        self.maxVal = 7
+
+      
+        self.value = QSlider(Qt.Horizontal)
+        #self.value.setFrameShape(QFrame.Panel)
+        #self.value.setFrameShadow(QFrame.Sunken)
+        #self.value.setLineWidth(1)
+        self.value.setMinimum(self.minVal)
+        self.value.setMaximum(self.maxVal)
+        self.value.setValue(initVal)
+        self.value.setTickInterval(1)
+        self.value.setTickPosition(QSlider.TicksBelow)
+        self.value.setPageStep(1)
+        self.value.setSingleStep(1)
+        self.value.mousePressEvent = self.slider_mousePressEvent
+        self.value.valueChanged.connect(self.onValueChanged)
+        self.layout.addWidget(self.value)
+        
+        self.setLayout(self.layout)
+
+    def onValueChanged(self, newValue):
+        self.label.setText('%d' % (newValue))
+        self.valueChanged.emit(newValue)
+
+    def getValue(self):
+        return int(self.label.text())
+    
+    def setValue(self, value):
+        self.value.setValue(value)
+
+    def slider_mousePressEvent(self, ev):
+        
+	self.value.setValue(int(float(ev.x())/self.value.width()*self.maxVal + 1))
+        ev.accept()
+        
+    def triggerAction(self, action):
+        self.value.triggerAction(action)
+        
+class QTLXDialog(QDialog):
+    def __init__(self, parent=None):
+        super(QTLXDialog, self).__init__(parent)
+        self.setWindowTitle('TLX Survey')
+        layout  = QVBoxLayout()
+        self.mental = QLabeledTLXSlider('Mental Demand', 3)
+        layout.addWidget(self.mental)
+
+        self.physical = QLabeledTLXSlider('Physical Demand', 3)
+        layout.addWidget(self.physical)
+
+        self.temporal = QLabeledTLXSlider('Temporal Demand', 3)
+        layout.addWidget(self.temporal)
+
+        self.performance = QLabeledTLXSlider('Performance', 3)
+        layout.addWidget(self.performance)
+
+        self.effort = QLabeledTLXSlider('Effort', 3)
+        layout.addWidget(self.effort)
+
+        self.frustration = QLabeledTLXSlider('Frustration', 3)
+        layout.addWidget(self.frustration)
+
+        self.btnDone = QPushButton('Done')
+        self.btnDone.clicked.connect(self.btnDone_onclick)
+
+        layout.addWidget(self.btnDone)
+        self.setLayout(layout)
+        
+    def reset(self):
+        self.mental.setValue(3)
+        self.physical.setValue(3)
+        self.temporal.setValue(3)
+        self.performance.setValue(3)
+        self.effort.setValue(3)
+        self.frustration.setValue(3)
+        
+    def btnDone_onclick(self):
+        self.close()
+
+    def getResults(self):
+        return [self.mental.getValue(),
+                self.physical.getValue(),
+                self.temporal.getValue(),
+                self.performance.getValue(),
+                self.effort.getValue(),
+                self.frustration.getValue()]
+    
 class QFeedbackDialog(QDialog):
     def __init__(self, parent=None):
         super(QFeedbackDialog, self).__init__(parent)
@@ -110,6 +210,7 @@ class ExperimentView(QSplitter):
         self.feedbackPub = rospy.Publisher('~feedback', Feedback, queue_size=10)
         self.progressPub = rospy.Publisher('~progress', UIProgress, queue_size=10)
         self.ratingPub = rospy.Publisher('~user_rating', TaskRating, queue_size=10)
+        self.tlxPub = rospy.Publisher('~tlx', TLXRating, queue_size=10)
         
     def startServices(self):
         self.graspSvc = rospy.Service('~tasks/grasp_task', RunGraspTask, self.svcGraspTask)
@@ -163,6 +264,23 @@ class ExperimentView(QSplitter):
         msg.taskRating = self.ratingDialog.getRating().value
         msg.scenarioIndex = int(self.expProgressLabel.getValue())
         self.ratingPub.publish(msg)
+
+        
+    def runTLXDialog(self):
+        self.tlxDialog.reset()
+        self.tlxDialog.exec_()
+        msg = TLXRating()
+        msg.header.stamp = rospy.Time.now()
+        tlxFeedback = self.tlxDialog.getResults()
+        
+        msg.mental = tlxFeedback[0]
+        msg.physical = tlxFeedback[1]
+        msg.temporal = tlxFeedback[2]
+        msg.performance = tlxFeedback[3]
+        msg.effort = tlxFeedback[4]
+        msg.frustration = tlxFeedback[5]
+
+        self.tlxPub.publish(msg)
         
     def onParamSelectorChanged(self, paramCount):
         #Twiddle visibility of the UI to show the selector thing
@@ -209,6 +327,8 @@ class ExperimentView(QSplitter):
                 self.runFeedbackDialog()
             elif component == 'QTaskRatingDialog':
                 self.runRatingDialog()
+            elif component == 'QTLXDialog':
+                self.runTLXDialog()
             else:
                 print 'Set visible: Unknown component:', component
         else:
@@ -464,6 +584,9 @@ class ExperimentView(QSplitter):
 
         #Task rating dialog:
         self.ratingDialog = QTaskRatingDialog()
+
+        #TLX dialog
+        self.tlxDialog = QTLXDialog()
         
         print 'Pausing'
         self.attentionTask.pause()

@@ -39,6 +39,7 @@ add_message_files(
   Feedback.msg
   UIProgress.msg
   TaskRating.msg
+  TLXRating.msg
 )
 
 add_service_files(
