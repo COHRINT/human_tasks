@@ -18,7 +18,9 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 
+from QLabeledValue import *
 from human_tasks.msg import *
+from msband.msg import *
 from nav_msgs.msg import *
 
 class QTopicWatchdog(QWidget):
@@ -66,26 +68,40 @@ class QTopicWatchdog(QWidget):
 
         
 class MonitorWidget(QWidget):
+    progress = pyqtSignal(int)
     def __init__(self, parent = None):
         super(MonitorWidget, self).__init__()
         layout = QVBoxLayout()
         layout.addWidget(QTopicWatchdog(self, 'telemetry', UITelemetry, 'UI Telemetry'))
         layout.addWidget(QTopicWatchdog(self, 'odom', Odometry, 'Gazebo Odometry'))
-
+        layout.addWidget(QTopicWatchdog(self, 'heartrate', Heartrate, 'MSBand Heartrate'))
+        self.lblProgress = QLabeledValue('Scenario Number:')
+        layout.addWidget(self.lblProgress)
+        
         self.btnQuit = QPushButton('Exit')
         self.btnQuit.clicked.connect(self.btnQuit_onclick)
+        self.progressSub = rospy.Subscriber('progress', UIProgress, self.updateProgress)
+        self.progress.connect(self.onProgress)
         
         self.setLayout(layout)
     def btnQuit_onclick(self):
         self.close()
+    def updateProgress(self, msg):
+        self.progress.emit(msg.current)
+    def onProgress(self, val):
+        self.lblProgress.updateValue(str(val))
         
 def main():
+    if len(sys.argv) < 2:
+        print 'Usage: ', sys.argv[0], ' <machine name for windowtitle>'
+        sys.exit(0)
+        
     rospy.init_node('monitor_node')
     
     app = QApplication(sys.argv)
     mainWidget = MonitorWidget(app)
     mainWindow = QMainWindow()
-    mainWindow.setWindowTitle('Monitor')
+    mainWindow.setWindowTitle('Monitor of:' + sys.argv[1])
     mainWindow.setCentralWidget(mainWidget)
     mainWindow.setStatusBar(QStatusBar())
           
