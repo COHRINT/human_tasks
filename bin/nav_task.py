@@ -196,6 +196,9 @@ class NavTaskWidget(QSplitter):
         self.startTime = rospy.Time.now()
         self.score = None
 
+        #Reset the sliders (doesn't trigger their actions)
+        self.linVelSlider.updateValue(0.0)
+        self.angVelSlider.updateValue(0.0)
         
         self.stateTimer.start(100)
                 
