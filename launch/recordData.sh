@@ -14,5 +14,6 @@ rosbag record \
        /experiment_ui/feedback \
        /experiment_ui/progress \
        /experiment_ui/telemetry \
+       /experiment_ui/user_rating \
        /robot0/cmd_vel \
        /robot0/odom_throttle
