@@ -13,6 +13,7 @@ Conops: Make a watchdog timer that resets when a message on a related topic is r
 '''
 
 import sys
+import subprocess
 import rospy
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
@@ -44,7 +45,6 @@ class QTopicWatchdog(QWidget):
         self.setLayout(layout)
         
         self.topicSub = rospy.Subscriber(self.topic, topicType, self.ros_cb)
-
         #Start the watchdog timer
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.onTimeout)
@@ -69,6 +69,8 @@ class QTopicWatchdog(QWidget):
         
 class MonitorWidget(QWidget):
     progress = pyqtSignal(int)
+    bagUpdate = pyqtSignal(str)
+    
     def __init__(self, parent = None):
         super(MonitorWidget, self).__init__()
         layout = QVBoxLayout()
@@ -77,6 +79,17 @@ class MonitorWidget(QWidget):
         layout.addWidget(QTopicWatchdog(self, 'heartrate', Heartrate, 'MSBand Heartrate'))
         self.lblProgress = QLabeledValue('Scenario Number:')
         layout.addWidget(self.lblProgress)
+
+
+        self.lblBagSize = QLabeledValue('Bag Watcher:')
+        layout.addWidget(self.lblBagSize)
+        self.bagSub = rospy.Subscriber('bag_updates', FileWatcher, self.updateBagWatcher)
+        self.bagUpdate.connect(self.onBagUpdate)
+        
+        
+        self.btnRunRQT = QPushButton('Run RQT')
+        self.btnRunRQT.clicked.connect(self.btnRunRQT_onclick)
+        layout.addWidget(self.btnRunRQT)
         
         self.btnQuit = QPushButton('Exit')
         self.btnQuit.clicked.connect(self.btnQuit_onclick)
@@ -84,8 +97,20 @@ class MonitorWidget(QWidget):
         self.progress.connect(self.onProgress)
         
         self.setLayout(layout)
+        
+    def btnRunRQT_onclick(self):
+        #Spawn a subprocess to run RQT with the ROS_MASTER_URI env:
+        self.rqt_process = subprocess.Popen(['rqt'])
+                                   
     def btnQuit_onclick(self):
         self.close()
+
+    def updateBagWatcher(self, msg):
+        self.bagUpdate.emit('%s: %d' % (msg.fileName, msg.fileSize))
+
+    def onBagUpdate(self, val):
+        self.lblBagSize.updateValue(val)
+        
     def updateProgress(self, msg):
         self.progress.emit(msg.current)
     def onProgress(self, val):

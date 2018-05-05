@@ -6,6 +6,6 @@
       <remap from="odom" to="/robot0/odom_throttle"/>
       <remap from="heartrate" to="/band/heartrate"/>
       <remap from="progress" to="/experiment_ui/progress"/>
-      
+      <remap from="bag_updates" to="/bag_updates"/>
 </node>
 </launch>

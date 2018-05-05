@@ -17,7 +17,7 @@ import pdb
 class FileMonitor(object):
     def __init__(self, directory, mask):
         #Monitor the directory for changes
-        self.monPub = rospy.Publisher('dir_updates', FileWatcher, queue_size = 10, latch=True)
+        self.monPub = rospy.Publisher('file_updates', FileWatcher, queue_size = 10, latch=True)
 
         self.i = inotify.adapters.Inotify()
         self.dirToWatch = directory
