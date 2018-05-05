@@ -40,6 +40,7 @@ add_message_files(
   UIProgress.msg
   TaskRating.msg
   TLXRating.msg
+  FileWatcher.msg
 )
 
 add_service_files(
