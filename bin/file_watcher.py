@@ -10,6 +10,7 @@ import rospy
 import sys
 import time
 from human_tasks.msg import *
+import os
 
 import signal
 import pdb
@@ -56,9 +57,8 @@ class FileMonitor(object):
                         #             watch_path.decode('utf-8'), filename.decode('utf-8'))
                         #print 'Header:', header, ' Type:', type_names, ' Filename:', filename.decode('utf-8')
                         if 'IN_MODIFY' in type_names:
-                            fileList = subprocess.check_output('/usr/bin/ls -l ' + filename.decode('utf-8'), shell=True)
-                            fileItems = fileList.split(' ')
-                            fileSize = fileItems[4]
+                            statInfo = os.stat(filename)
+                            fileSize = statInfo.st_size
                             self.postFileMessage(filename, fileSize)
 
         finally:
