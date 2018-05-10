@@ -1,0 +1,7 @@
+<launch>
+
+ <!-- Bag file monitoring -->
+    <node pkg="human_tasks" type="file_watcher.py" name="bag_watcher" output="screen" args="human_ws">
+    	  <remap from="file_updates" to="/bag_updates"/>
+    </node>
+</launch>

@@ -20,8 +20,10 @@ class FileMonitor(object):
         #Monitor the directory for changes
         self.monPub = rospy.Publisher('file_updates', FileWatcher, queue_size = 10, latch=True)
 
+
         self.i = inotify.adapters.Inotify()
-        self.dirToWatch = directory
+        self.dirToWatch = os.path.join(os.path.expanduser('~'), directory)
+        
         print 'Watching ', self.dirToWatch, ' for ROS bags'
         self.i.add_watch(self.dirToWatch)
         self.mask = mask
@@ -56,8 +58,9 @@ class FileMonitor(object):
                         #             header.wd, header.mask, header.cookie, header.len, type_names,
                         #             watch_path.decode('utf-8'), filename.decode('utf-8'))
                         #print 'Header:', header, ' Type:', type_names, ' Filename:', filename.decode('utf-8')
-                        if 'IN_MODIFY' in type_names:
-                            statInfo = os.stat(filename)
+                        #if 'IN_MODIFY' in type_names and '.bag' in filename:
+                        if True:
+                            statInfo = os.stat(os.path.join(self.dirToWatch, filename))
                             fileSize = statInfo.st_size
                             self.postFileMessage(filename, fileSize)
 
