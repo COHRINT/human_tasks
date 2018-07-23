@@ -45,13 +45,13 @@ import json
 
 import numpy as np
 from scipy import stats
-from matplotlib.cm import inferno
-
+from matplotlib.cm import inferno, viridis
+from RobotIcon import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 
-
+from taskEnums import *
 from human_tasks.msg import *
 
 #Main window area: Contains a QGraphicsView and some buttons
@@ -66,8 +66,13 @@ class PathPlanningWidget(QWidget):
         #Create the layout once
         self.initUI()
         
-    def initialize(self, means, covs, startPos, endPos):
+    def initialize(self, difficulty, means, covs, startPos, endPos):
         print 'Initializing UI'
+        self.difficulty = difficulty
+        
+        self.hazards = zip(means, covs)
+        self.startPos = startPos
+        self.endPos = endPos
 
         self.setVisible(True)
         self.planView.setHazards(means, covs)
@@ -81,14 +86,57 @@ class PathPlanningWidget(QWidget):
         self.update()
         self.telemetryTimer.start(100)
         self.planView.grabKeyboard()
+        self.planView.resetPath()
         
+    def generateNewScenario(self):
+        difficulty = TaskDifficulty.Hard
+        
+        sceneWidth = self.planWidth
+        sceneHeight = self.planHeight
+        hazCount = (difficulty.value + 1) * 5
+        means = zip(stats.uniform.rvs(size=hazCount) * sceneWidth,
+                    stats.uniform.rvs(size=hazCount) * sceneHeight)
+        covs = list()
+       
+        for i in range(0, len(means)):
+            scale = stats.uniform.rvs(size=2) * 30 + 5.0
+            covs.append(stats.wishart.rvs(df=10,scale=(scale[0],scale[1])))
+
+        standoff = 10
+
+        goodPos = False
+        minDist = sceneWidth * 0.5
+        while not goodPos:
+            coordX = standoff + stats.uniform.rvs(size=2) * (sceneWidth - standoff*2)
+            coordY = standoff + stats.uniform.rvs(size=2) * (sceneHeight - standoff*2)
+
+            dist = np.linalg.norm([coordX[1] - coordX[0], coordY[1]-coordY[0]])
+            if dist > minDist:
+                goodPos = True
+            
+        positions = zip(coordX, coordY)
+        startPos = positions[0]
+        startPos = (int(startPos[0]), int(startPos[1]))
+        endPos = positions[1]
+        endPos = (int(endPos[0]), int(endPos[1]))
+        self.initialize(difficulty, means, covs, startPos, endPos)
+
     def initUI(self):
 
         self.setWindowTitle('Path Planning')
         mainLayout = QVBoxLayout()
-        self.planView = PathPlanView(parent = self)
+        self.planWidth = 100
+        self.planHeight = 100
+        self.planView = PathPlanView(width=self.planWidth,
+                                     height=self.planHeight,
+                                     parent = self)
         self.w = 500
         self.h = 500
+
+        self.btnReset = QPushButton('Reset path')
+        self.btnReset.clicked.connect(self.btnReset_onclick)
+
+        mainLayout.addWidget(self.btnReset)
         
         mainLayout.addWidget(self.planView)
         self.btnDone = QPushButton('Get Score')
@@ -102,6 +150,25 @@ class PathPlanningWidget(QWidget):
         self.telemetryTimer = QTimer()
         self.telemetryTimer.timeout.connect(self.pushTelemetry)
         
+    def saveScenario(self):
+        #Write the scenario to a csv file for loading later
+
+        hazFile = open('path_hazards.csv', 'a')
+        hazFile.write('%d' % self.difficulty.value)
+        hazFile.write(',%d' % len(self.hazards))
+        
+        for i in range(0, len(self.hazards)):
+            hazFile.write(',%1.2f,%1.2f' % self.hazards[i][0]) #means
+            hazFile.write(',%1.2f,%1.2f,%1.2f' % (self.hazards[i][1][0][0],
+                                         self.hazards[i][1][0][1],
+                                         self.hazards[i][1][1][1])) #covariance entries
+
+        hazFile.write(',%d,%d' % self.startPos)
+        hazFile.write(',%d,%d' % self.endPos)
+        hazFile.write('\n')
+        hazFile.close()
+        print 'Scenario saved'
+                       
     def pushTelemetry(self):
         self.onTelemetry.emit('PathPlanningWidget', self.makeStateJSON())
         
@@ -109,10 +176,19 @@ class PathPlanningWidget(QWidget):
         #Produce a Python dict, then encode to JSON
 
         state = dict()
-        #state['crosshairPosition'] = (self.sampleView.crossHair.pos().x(),
-        #                              self.sampleView.crossHair.pos().y())
+
+        #Compose a list of tuples of x,y coords in the path
+        path = list()
+        for point in self.planView.pathList:
+            path.append((int(point.pos().x()), int(point.pos().y())))
+            
+        state['path'] = path
         return json.dumps(state)
-    
+
+    def btnReset_onclick(self, evt):
+        #print 'Resetting path'
+        self.planView.resetPath()
+        
     def btnDone_keyPress(self, evt):
         if evt.key() == Qt.Key_Return:
             self.btnDone_onclick()
@@ -121,9 +197,14 @@ class PathPlanningWidget(QWidget):
         if self.finalTime is None:
             self.planView.releaseKeyboard()
             self.getScore()
+            print 'User earned a score of:', self.score[0]
+        
             elapsedTime = self.finalTime - self.startTime
+
+            #Score has three elements: length, distance to goal left, and mass. Report mass
+            
             self.btnDone.setText('Score: %1.2f Time: %1.1f sec - Get Next Task' %
-                                 (self.score, elapsedTime.to_sec()))
+                                 (self.score[0], elapsedTime.to_sec()))
             self.telemetryTimer.stop()
         else:
             self.scoringComplete.emit()
@@ -132,28 +213,32 @@ class PathPlanningWidget(QWidget):
             self.btnDone.setText('Get Score')
             #self.parent().close()
 
+
+            #REMOVE FOR RELEASE
+            self.finalTime = None
     def getScore(self):
         print 'Calculating score'
-        self.score = float(funnelCount) / sampleCount
+        self.score = self.planView.getScore()
         self.finalTime = rospy.Time.now()
-        
-        #print 'User earned a score of:', self.score
-        
-        self.sampleView.setDisabled(True)
+
+        #self.planView.setDisabled(True)
         self.btnDone.setFocus(Qt.TabFocusReason)
 
         
 class PathPlanView(QGraphicsView):
-    def __init__(self, parent=None):
+    def __init__(self, width = 100, height=100, parent=None):
         super(PathPlanView, self).__init__(parent=parent)
         self._parent = parent
 
         self.setScene(QGraphicsScene())
         self._scene = self.scene()
-        self.w = 100
-        self.h = 100
+        self.w = width
+        self.h = height
         self.hazmapItems = None
-        self.colors = inferno(np.linspace(0,1,255))
+        self.startItem = None
+        self.endItem = None
+        self.drawPath = False
+        self.colors = viridis(np.linspace(0,1,255))
         self.pathPoints = np.zeros((self.h, self.w), dtype=bool)
         self.pathList = []
         
@@ -176,7 +261,9 @@ class PathPlanView(QGraphicsView):
         #lims = (int(-self.w/2), int(self.w/2)) # support of the PDF
         #pdb.set_trace()
         
-        xx, yy = np.meshgrid(np.linspace(int(-self.w/2), int(self.w/2), self.w), np.linspace(int(-self.h/2), int(self.h/2), self.h))
+        #xx, yy = np.meshgrid(np.linspace(int(-self.w/2), int(self.w/2), self.w), np.linspace(int(-self.h/2), int(self.h/2), self.h))
+        xx, yy = np.meshgrid(np.linspace(0, self.w, self.w),
+                             np.linspace(0, self.h, self.h))
         points = np.stack((xx, yy), axis=-1)
 
         self.hazmap = np.zeros((self.h, self.w))
@@ -226,7 +313,7 @@ class PathPlanView(QGraphicsView):
                 #scale_h = scaledHeight / bounds.height()
                 #thisDir.setTransformOriginPoint(QPointF(bounds.width() / 2, bounds.height() / 2))
 
-                
+               
                 #thisDir.setScale(scale_w)
                 #bounds = thisDir.boundingRect()
                 thisCell.setPos(QPointF(col, row))
@@ -235,11 +322,37 @@ class PathPlanView(QGraphicsView):
         
     def setStart(self, startPos):
         #Draw something to indicate the start position
-        pass
+        thisGoal = RobotWidget('S', QColor(Qt.blue))
+        thisGoal.setFont(QFont("SansSerif", max(self.h / 20.0,3), QFont.Bold))
+        thisGoal.setBrush(QBrush(QColor(Qt.blue)))
+        if not self.startItem is None:
+            self._scene.removeItem(self.startItem)
+            
+        self.startItem = thisGoal
+        self.startPos = startPos
+        self._scene.addItem(thisGoal)
+        bounds = self.startItem.boundingRect()
+        #print 'Bounds:', bounds
+        centered = (startPos[0] - bounds.width()/2, startPos[1] - bounds.height()/2)
+        self.startItem.setPos(QPointF(centered[0], centered[1]))
+
 
     def setEnd(self, endPos):
         #Draw something to indicate the end position
-        pass
+        thisGoal = RobotWidget('X', QColor(Qt.red))
+        thisGoal.setFont(QFont("SansSerif", max(self.h / 20.0,3), QFont.Bold))
+        thisGoal.setBrush(QBrush(QColor(Qt.red)))
+        if not self.endItem is None:
+            self._scene.removeItem(self.endItem)
+            
+        self.endItem = thisGoal
+        self.endPos = endPos
+        self._scene.addItem(thisGoal)
+        bounds = self.endItem.boundingRect()
+        #print 'Bounds:', bounds
+        centered = (endPos[0] - bounds.width()/2, endPos[1] - bounds.height()/2)
+        self.endItem.setPos(QPointF(centered[0], centered[1]))
+
         
     def resizeEvent(self, evt=None):
         #Resize map to fill window
@@ -249,22 +362,45 @@ class PathPlanView(QGraphicsView):
             self._scene.setSceneRect(0, 0, self.w, self.h)
             self.fitInView(self._scene.sceneRect(), Qt.KeepAspectRatio)
             self.show()
-            
-    def keyPressEvent(self, event):
-        currentPos = self.crossHair.pos()
-        keyMove = 5
-        if event.key() == Qt.Key_Up:
-            self.crossHair.setPos(QPointF(currentPos.x(), currentPos.y() - keyMove))
-        elif event.key() == Qt.Key_Down:
-            self.crossHair.setPos(QPointF(currentPos.x(), currentPos.y() + keyMove))
-        elif event.key() == Qt.Key_Left:
-            self.crossHair.setPos(QPointF(currentPos.x()-keyMove, currentPos.y()))
-        elif event.key() == Qt.Key_Right:
-            self.crossHair.setPos(QPointF(currentPos.x()+keyMove, currentPos.y()))
-        elif event.key() == Qt.Key_Space:
-            self.parent().btnDone_onclick()
 
-            
+    def getScore(self):
+        #Score the path
+        #return the number of cells that were used in the path
+        #the distance to the goal yet to be planned for
+        #and the total prob mass covered by the path
+
+        pathLength = len(self.pathList)
+
+        #dist to end:
+        #There's always at least one point: the start position
+        lastPoint = self.pathList[-1]
+
+        deltaY = float(self.endPos[1] - lastPoint.pos().y())
+        deltaX = float(self.endPos[0] - lastPoint.pos().x())
+
+        distToGo = np.linalg.norm((deltaX, deltaY))
+
+        #Total prob mass covered:
+        totalMass = 0.0
+        
+        for row in range(0, self.hazmap.shape[1]):
+            for col in range(0, self.hazmap.shape[0]):
+                if self.pathPoints[row][col]:
+                    totalMass += self.hazmap[row][col]
+                    
+        #Scoring this is a little tough
+        #Add the ratio of distance marked to mass covered
+        #to the distance left to go divided by the uniform mass per item
+
+        '''
+        Split into resources / quality:
+        Resources = blocks used
+        Quality = (mass, dist to go)
+        '''
+        print 'Dist to Go component:', distToGo / (self.h*self.w)
+        overallScore = (-pathLength * totalMass) - distToGo / (self.h*self.w) * 10.0 + 1.0
+        return (overallScore, pathLength, totalMass, distToGo)
+    
     #Ignore other keys...
     #Capture mousedown to start drawing the user's path
     def mouseMoveEvent(self, event):
@@ -284,7 +420,7 @@ class PathPlanView(QGraphicsView):
                 #This is the first point  
                 self.pathPoints[sceneY][sceneX] = True
                 newCell = self.makePathItem(sceneX, sceneY)
-                print 'Added primary point:', sceneX, ',', sceneY
+                #print 'Added primary point:', sceneX, ',', sceneY
                 self._scene.addItem(newCell)
                 self.pathList.append(newCell)
                 
@@ -305,8 +441,8 @@ class PathPlanView(QGraphicsView):
                 fillDist = np.linalg.norm((deltaX, deltaY))
                 if fillDist > np.sqrt(2):
 
-                    print 'Distance was:', fillDist
-                    print 'from :', lastX, ',', lastY, 'to ', sceneX, ',', sceneY 
+                    #print 'Distance was:', fillDist
+                    #print 'from :', lastX, ',', lastY, 'to ', sceneX, ',', sceneY 
                     incX = deltaX / fillDist
                     incY = deltaY / fillDist
 
@@ -316,13 +452,13 @@ class PathPlanView(QGraphicsView):
                         
                         candX = int(lastX + i*incX)
                         candY = int(lastY + i*incY)
-                        print 'Considering ', candX, ',', candY
+                        #print 'Considering ', candX, ',', candY
                         #Is it already in the path?
                         if self.pathPoints[candY][candX]:
                             continue
                         
                         self.pathPoints[candY][candX] = True
-                        print 'Added gap point:', candX, ',', candY
+                        #print 'Added gap point:', candX, ',', candY
 
                         newCell = self.makePathItem(candX, candY)
                         self._scene.addItem(newCell)
@@ -332,7 +468,7 @@ class PathPlanView(QGraphicsView):
                     if not self.pathPoints[sceneY][sceneX]:
                         self.pathPoints[sceneY][sceneX] = True
                         newCell = self.makePathItem(sceneX, sceneY)
-                        print 'Added primary point:', sceneX, ',', sceneY
+                        #print 'Added primary point:', sceneX, ',', sceneY
                         self._scene.addItem(newCell)
                         self.pathList.append(newCell)
             
@@ -352,29 +488,35 @@ class PathPlanView(QGraphicsView):
         thisCell.setPos(QPointF(sceneX, sceneY))
         thisCell.setZValue(10)
         return thisCell
-    
-    def mousePressEvent(self, event):
-        print 'Mouse press'
-        print event
 
+    def resetPath(self):
         for theCell in self.pathList:
             self._scene.removeItem(theCell)
         self.pathList = []
         
         self.pathPoints = np.zeros((self.h, self.w), dtype=bool)
-        self.drawPath = True
+
+        #Set the first point to be the start  
+        self.pathPoints[self.startPos[1]][self.startPos[0]] = True
+        newCell = self.makePathItem(self.startPos[0], self.startPos[1])
         
-    def mouseReleaseEvent(self, event):
-        print 'Mouse release'
-        self.drawPath = False
-
-    #def mousePressEvent(self, event):
-    #    sceneCoords = self.mapToScene(event.pos())
-    #    bounds = self.crossHair.boundingRect()
-    #    self.crossHair.setPos(QPointF(sceneCoords.x()-bounds.width()/2, sceneCoords.y()-bounds.height()/2))
-
-                
+        self._scene.addItem(newCell)
+        self.pathList.append(newCell)
+        
+    def mousePressEvent(self, event):
+        if event.button() == 8:
+            self.parent().generateNewScenario()
+        if event.button() == 16:
+            self.parent().saveScenario()
             
+        if event.button() == 1:
+            self.resetPath()
+            self.drawPath = True
+                
+    def mouseReleaseEvent(self, event):
+        if event.button() == 1:
+            self.drawPath = False
+
 def main():
         if len(sys.argv) < 6:
                 print 'Usage:', sys.argv[0], ' <x> <y> <start_x> <start_y> <end_x> <end_y>'
@@ -390,7 +532,7 @@ def main():
         means.append((-float(sys.argv[1]), float(sys.argv[2])))
 
         covs = list()
-        scale = 5.0
+        scale = 25.0
         covs.append(stats.wishart.rvs(df=2,scale=(scale,scale)))
         covs.append(stats.wishart.rvs(df=2,scale=(scale,scale)))
                   
@@ -398,7 +540,8 @@ def main():
         endPos = (int(sys.argv[5]), int(sys.argv[6]))
         
 	planApp = PathPlanningWidget()
-        planApp.initialize(means, covs, startPos, endPos)
+        difficulty = TaskDifficulty.Easy
+        planApp.initialize(difficulty, means, covs, startPos, endPos)
         mainWindow = QMainWindow()
         mainWindow.setWindowTitle('Path Planning')
         mainWindow.setCentralWidget(planApp)
