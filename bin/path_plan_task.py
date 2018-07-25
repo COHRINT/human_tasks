@@ -403,12 +403,27 @@ class PathPlanView(QGraphicsView):
         Quality = (mass, dist to go)
         '''
         #Add a quadratic currency conversion to penalize long path lengths..
-        pathPenalty = 0.001
+        pathPenalty = 0.01
         print 'DistBase:', distBase
-        overallScore = totalMass - pathPenalty * (pathLength - distBase) ** 2 
+
+        #With 8-connected paths, the Euclidean distance might be shorter
+        #Bump up the base measurement by 10% to give the user a buffer
+        distBase *= 1.1
+        overallScore = pathLength / (1.0 - totalMass) - pathPenalty * abs(pathLength - distBase) ** 2
         
         return (overallScore, pathLength, totalMass)
+    
+    def addPoint(self, point):
+        candX = point[0]
+        candY = point[1]
+        
+        self.pathPoints[candY][candX] = True
+        #print 'Added gap point:', candX, ',', candY
 
+        newCell = self.makePathItem(candX, candY)
+        self._scene.addItem(newCell)
+        self.pathList.append(newCell)
+        
     def connectPoints(self, srcPoint, destPoint):
         #Draw in between the two points, adding items to the scene graph as needed
         #print 'Last point X,Y:', lastPoint.pos().x(), ',', lastPoint.pos().y()
@@ -421,7 +436,26 @@ class PathPlanView(QGraphicsView):
         
         deltaY = float(destY - srcY)
         deltaX = float(destX - srcX)
+        
+        '''
+        #Connect via 4-connected path
+        slope = deltaY/deltaX
+        curX = srcX
+        curY = srcY
 
+        
+        print 'DestX:', destX, ' DestY:', destY
+        while (curX <> destX) and (curY <> destY):
+            print 'CurX:', curX, ' CurY:', curY
+            nextY = curY + slope
+            if nextY > (curY + 1):
+                curY = curY + np.sign(deltaY)
+            else:
+                curX = curX + np.sign(deltaX)
+            self.addPoint((int(curX), int(curY)))
+        ''' 
+                                      
+        
         #Number of iterations is the l2 norm
         fillDist = np.linalg.norm((deltaX, deltaY))
         if fillDist > np.sqrt(2):
