@@ -30,8 +30,6 @@ Scoring:
 2. Sum the p(hazards)
 3. Timing data
 
-
-
 '''
 import pdb
 
@@ -197,7 +195,7 @@ class PathPlanningWidget(QWidget):
         if self.finalTime is None:
             self.planView.releaseKeyboard()
             self.getScore()
-            print 'User earned a score of:', self.score[0]
+            print 'User earned a score of:', self.score
         
             elapsedTime = self.finalTime - self.startTime
 
@@ -369,16 +367,23 @@ class PathPlanView(QGraphicsView):
         #the distance to the goal yet to be planned for
         #and the total prob mass covered by the path
 
+        #First, connect the path to the end
+        lastPoint = self.pathList[-1]
+
+        self.connectPoints((lastPoint.pos().x(), lastPoint.pos().y()),
+                           (self.endPos[0], self.endPos[1]))
+
+        
         pathLength = len(self.pathList)
 
         #dist to end:
         #There's always at least one point: the start position
         lastPoint = self.pathList[-1]
 
-        deltaY = float(self.endPos[1] - lastPoint.pos().y())
-        deltaX = float(self.endPos[0] - lastPoint.pos().x())
+        deltaY = float(self.endPos[1] - self.startPos[1])
+        deltaX = float(self.endPos[0] - self.startPos[0])
 
-        distToGo = np.linalg.norm((deltaX, deltaY))
+        distBase = np.linalg.norm((deltaX, deltaY))
 
         #Total prob mass covered:
         totalMass = 0.0
@@ -397,10 +402,60 @@ class PathPlanView(QGraphicsView):
         Resources = blocks used
         Quality = (mass, dist to go)
         '''
-        print 'Dist to Go component:', distToGo / (self.h*self.w)
-        overallScore = (-pathLength * totalMass) - distToGo / (self.h*self.w) * 10.0 + 1.0
-        return (overallScore, pathLength, totalMass, distToGo)
-    
+        #Add a quadratic currency conversion to penalize long path lengths..
+        pathPenalty = 0.001
+        print 'DistBase:', distBase
+        overallScore = totalMass - pathPenalty * (pathLength - distBase) ** 2 
+        
+        return (overallScore, pathLength, totalMass)
+
+    def connectPoints(self, srcPoint, destPoint):
+        #Draw in between the two points, adding items to the scene graph as needed
+        #print 'Last point X,Y:', lastPoint.pos().x(), ',', lastPoint.pos().y()
+
+        #The problem is that a mouse movement may be too fast to have an 8-connected path
+        srcX = srcPoint[0]
+        srcY = srcPoint[1]
+        destX = destPoint[0]
+        destY = destPoint[1]
+        
+        deltaY = float(destY - srcY)
+        deltaX = float(destX - srcX)
+
+        #Number of iterations is the l2 norm
+        fillDist = np.linalg.norm((deltaX, deltaY))
+        if fillDist > np.sqrt(2):
+
+            #print 'Distance was:', fillDist
+            #print 'from :', lastX, ',', lastY, 'to ', sceneX, ',', sceneY 
+            incX = deltaX / fillDist
+            incY = deltaY / fillDist
+
+            for i in range(1, int(fillDist)+1):
+                #Should start from the last point, and go to the current point:
+
+                candX = int(srcX + i*incX)
+                candY = int(srcY + i*incY)
+                #print 'Considering ', candX, ',', candY
+                #Is it already in the path?
+                if self.pathPoints[candY][candX]:
+                    continue
+
+                self.pathPoints[candY][candX] = True
+                #print 'Added gap point:', candX, ',', candY
+
+                newCell = self.makePathItem(candX, candY)
+                self._scene.addItem(newCell)
+                self.pathList.append(newCell)
+        else:
+            #There wasn't a gap to be filled
+            if not self.pathPoints[destY][destX]:
+                self.pathPoints[destY][destX] = True
+                newCell = self.makePathItem(destX, destY)
+                #print 'Added primary point:', sceneX, ',', sceneY
+                self._scene.addItem(newCell)
+                self.pathList.append(newCell)
+        
     #Ignore other keys...
     #Capture mousedown to start drawing the user's path
     def mouseMoveEvent(self, event):
@@ -428,49 +483,10 @@ class PathPlanView(QGraphicsView):
             if len(self.pathList) > 0:
                 #We have at least one prior element that we need to link to
                 lastPoint = self.pathList[-1]
-                #print 'Last point X,Y:', lastPoint.pos().x(), ',', lastPoint.pos().y()
-
-                #The problem is that a mouse movement may be too fast to have an 8-connected path
-                deltaY = float(sceneY - lastPoint.pos().y())
-                deltaX = float(sceneX - lastPoint.pos().x())
-
                 lastX = int(lastPoint.pos().x())
                 lastY = int(lastPoint.pos().y())
+                self.connectPoints((lastX, lastY), (sceneX, sceneY))
                 
-                #Number of iterations is the l2 norm
-                fillDist = np.linalg.norm((deltaX, deltaY))
-                if fillDist > np.sqrt(2):
-
-                    #print 'Distance was:', fillDist
-                    #print 'from :', lastX, ',', lastY, 'to ', sceneX, ',', sceneY 
-                    incX = deltaX / fillDist
-                    incY = deltaY / fillDist
-
-                    for i in range(1, int(fillDist)+1):
-                        #pdb.set_trace()
-                        #Should start from the last point, and go to the current point:
-                        
-                        candX = int(lastX + i*incX)
-                        candY = int(lastY + i*incY)
-                        #print 'Considering ', candX, ',', candY
-                        #Is it already in the path?
-                        if self.pathPoints[candY][candX]:
-                            continue
-                        
-                        self.pathPoints[candY][candX] = True
-                        #print 'Added gap point:', candX, ',', candY
-
-                        newCell = self.makePathItem(candX, candY)
-                        self._scene.addItem(newCell)
-                        self.pathList.append(newCell)
-                else:
-                    #There wasn't a gap to be filled
-                    if not self.pathPoints[sceneY][sceneX]:
-                        self.pathPoints[sceneY][sceneX] = True
-                        newCell = self.makePathItem(sceneX, sceneY)
-                        #print 'Added primary point:', sceneX, ',', sceneY
-                        self._scene.addItem(newCell)
-                        self.pathList.append(newCell)
             
    
     def makePathItem(self, sceneX, sceneY):
