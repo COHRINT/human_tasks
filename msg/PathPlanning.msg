@@ -1,0 +1,12 @@
+Header header
+float32 score
+float32 duration
+uint8 difficulty
+uint32 pathLength
+float32 totalMass
+time startTime
+time endTime
+geometry_msgs/Pose start
+geometry_msgs/Pose goal
+geometry_msgs/Point[] means
+human_tasks/Covariance2D[] covs
