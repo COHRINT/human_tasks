@@ -80,6 +80,7 @@ class AttentionWidget(QWidget):
         self.sleepTimer.timeout.connect(self.timer_expired)
         self.setTimer()
         self.paused = False
+        self.lcdCounting = False
         
     def setTimer(self):
         #set the next timer
@@ -93,11 +94,19 @@ class AttentionWidget(QWidget):
         #else, pause the sleepTimer
         self.sleepTimer.stop() #memorylessness, we can just start it up again anew
         self.paused = True
-
+        if self.lcdTimer.isActive():
+            self.lcdCounting = True
+            self.lcdTimer.stop()
+        else:
+            self.lcdCounting = False
+            
     def resume(self):
         self.paused = False
-        self.setTimer()
-
+        if self.lcdCounting:
+            self.lcdTimer.start(1000)
+        else:
+            self.setTimer()
+            
     def incrementLCD(self):
         #Are we resuming?
         if self.lcdTimer.isSingleShot():
