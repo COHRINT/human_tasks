@@ -163,7 +163,7 @@ class ControlNode(object):
             pp_task = rospy.ServiceProxy(self.experimentNS+'/tasks/path_plan_task', RunPathPlanningTask)
             req = RunPathPlanningTaskRequest()
             print 'Running path plan task:', index
-            print self.ppTasks[index]
+            #print self.ppTasks[index]
             #Parse the CSV file of path plan tasks
             #Elements:
             #0: difficulty

@@ -94,6 +94,10 @@ class PathPlanningWidget(QWidget):
         self.score = 0.0
         self.finalTime = None
         self.startTime = rospy.Time.now()
+
+        self.planView.resetPath()
+        self.baseScore = self.planView.getBaseScore()
+        
         self.update()
         self.telemetryTimer.start(100)
         self.planView.grabKeyboard()
@@ -166,7 +170,7 @@ class PathPlanningWidget(QWidget):
         self.btnReset = QPushButton('Reset path')
         self.btnReset.clicked.connect(self.btnReset_onclick)
 
-        mainLayout.addWidget(self.btnReset)
+        #mainLayout.addWidget(self.btnReset)
         
         mainLayout.addWidget(self.planView)
         self.btnDone = QPushButton('Get Score')
@@ -245,7 +249,13 @@ class PathPlanningWidget(QWidget):
 
     def getScore(self):
         print 'Calculating score'
-        self.score = self.planView.getScore()
+        self.userScore = self.planView.getScore()
+
+        print 'Base score:', self.baseScore
+        print 'Raw user:', self.userScore
+        
+        self.score = (self.userScore[0] / self.baseScore[0], self.userScore[1], self.userScore[2])
+        print 'Final:', self.score
         self.finalTime = rospy.Time.now()
 
         self.planView.setDisabled(True)
@@ -389,7 +399,16 @@ class PathPlanView(QGraphicsView):
             self._scene.setSceneRect(0, 0, self.w, self.h)
             self.fitInView(self._scene.sceneRect(), Qt.KeepAspectRatio)
             self.show()
-
+            
+    def getBaseScore(self):
+        #Figure out what the base score is, then reset for the user:
+        self.connectPoints((self.startPos[0], self.startPos[1]),
+                           (self.endPos[0], self.endPos[1]))
+        self.baseScore = self.getScore()
+        print 'Got base score of:', self.baseScore
+        
+        return self.baseScore
+    
     def getScore(self):
         #Score the path
         #return the number of cells that were used in the path
@@ -583,11 +602,12 @@ class PathPlanView(QGraphicsView):
         self.pathList.append(newCell)
         
     def mousePressEvent(self, event):
+        '''
         if event.button() == 8:
             self.parent().generateNewScenario()
         if event.button() == 16:
             self.parent().saveScenario()
-            
+        '''         
         if event.button() == 1:
             self.resetPath()
             self.drawPath = True
