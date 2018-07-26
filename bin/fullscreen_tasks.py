@@ -10,7 +10,8 @@ from tank_task import TankWidget
 from attention_task import AttentionWidget
 from grasping import GraspingWidget
 from sampleHandling import SampleHandlingWidget
-from nav_task import NavTaskWidget
+#from nav_task import NavTaskWidget
+from path_plan_task import PathPlanningWidget
 from QLabeledValue import *
 from taskEnums import *
 
@@ -216,6 +217,7 @@ class ExperimentView(QSplitter):
         self.graspSvc = rospy.Service('~tasks/grasp_task', RunGraspTask, self.svcGraspTask)
         self.sampleSvc = rospy.Service('~tasks/sample_task', RunSampleTask, self.svcSampleTask)
         self.navSvc = rospy.Service('~tasks/nav_task', RunNavTask, self.svcNavTask)
+        self.pathSvc = rospy.Service('~tasks/path_plan_task', RunPathPlanningTask, self.svcPathPlanTask)
         self.stateSvc = rospy.Service('~set_visibility', SetUIState, self.svcUIState)
         self.progressSvc = rospy.Service('~set_progress', SetProgress, self.svcProgress)
         self.paramIndexSvc = rospy.Service('~get_subject_index', GetSubjectParamIndex, self.svcGetParamIndex)
@@ -225,7 +227,7 @@ class ExperimentView(QSplitter):
         #self.workloadSvc = rospy.Service('~set_workload_params', SetWorkloadParams, self.svcWorkloadParams)
         
     def onTaskComplete(self):
-        self.runRatingDialog()
+        #self.runRatingDialog()
         print 'Waking up service call'
         self.taskCondition.wakeOne() 
 
@@ -267,6 +269,12 @@ class ExperimentView(QSplitter):
 
         
     def runTLXDialog(self):
+        #Run in a local event loop:
+        #Pause the tank/comm tasks
+        print 'Pausing'
+        self.attentionTask.pause()
+        self.tankTask.pause()
+        
         self.tlxDialog.reset()
         self.tlxDialog.exec_()
         msg = TLXRating()
@@ -281,6 +289,9 @@ class ExperimentView(QSplitter):
         msg.frustration = tlxFeedback[5]
 
         self.tlxPub.publish(msg)
+        print 'Resuming'
+        self.attentionTask.resume()
+        self.tankTask.resume()
         
     def onParamSelectorChanged(self, paramCount):
         #Twiddle visibility of the UI to show the selector thing
@@ -433,7 +444,10 @@ class ExperimentView(QSplitter):
         startTime = rospy.Time.now()
         #print 'Request:', req
         #print 'Posting goal:', req.goal
-        self.navTask.reinitialize.emit(req.start, req.goal)
+
+        #unpack the parameters from the service call
+        
+        self.navTask.reinitialize.emit(req)
         
         self.taskCondition.wait(self.taskLock)
         self.taskLock.unlock()
@@ -448,7 +462,36 @@ class ExperimentView(QSplitter):
         resp.report.startTime = startTime
         resp.report.endTime = self.navTask.finalTime
         return resp
+    
+    def svcPathPlanTask(self, req):
+        self.layoutChanged.emit(self.navTask)
+        self.taskLock.lock()
+        #print 'Sleeping in service call'
 
+        startTime = rospy.Time.now()
+        #print 'Request:', req
+        #print 'Posting goal:', req.goal
+
+        #unpack the parameters from the service call
+        
+        self.navTask.reinitialize.emit(req.scenario)
+        
+        self.taskCondition.wait(self.taskLock)
+        self.taskLock.unlock()
+        resp = RunPathPlanningTaskResponse()
+        totalTime = self.navTask.finalTime - startTime #A Duration
+        
+        resp.report.header.stamp = rospy.Time.now()
+        resp.report.score = self.navTask.score[0]
+        resp.report.pathLength = self.navTask.score[1]
+        resp.report.totalMass = self.navTask.score[2]
+
+        resp.report.start = req.scenario.start
+        resp.report.goal = req.scenario.goal
+        resp.report.duration = totalTime.to_sec()
+        resp.report.startTime = startTime
+        resp.report.endTime = self.navTask.finalTime
+        return resp
 
     def initUI(self):
 
@@ -525,7 +568,7 @@ class ExperimentView(QSplitter):
         self.graspTask.scoringComplete.connect(self.onTaskComplete)
 
 
-        self.navTask = NavTaskWidget()
+        self.navTask = PathPlanningWidget()
         self.navTask.setVisible(False)
         self.navTask.scoringComplete.connect(self.onTaskComplete)
         

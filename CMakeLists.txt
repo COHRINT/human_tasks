@@ -41,6 +41,8 @@ add_message_files(
   TaskRating.msg
   TLXRating.msg
   FileWatcher.msg
+  Covariance2D.msg
+  PathPlanning.msg
 )
 
 add_service_files(
@@ -51,6 +53,7 @@ add_service_files(
   RunNavTask.srv
   RunGraspTask.srv
   RunSampleTask.srv
+  RunPathPlanningTask.srv
   SetUIState.srv
   SetProgress.srv
   GetSubjectParamIndex.srv

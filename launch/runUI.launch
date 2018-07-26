@@ -8,18 +8,21 @@
    
     
     <!-- Gazebo with Lus Chasma -->
+    <!--
     <include file="$(find scenario_runner)/launches/ius_chasma.launch"/>
     <param name="gazebo/gravity_z" value="-3.0"/>
-    
     <param name="use_sim_time" value="False"/>
-    <!-- Throttle robot odometry updates -->
+    -->
+    
+    <!-- Throttle robot odometry updates
     <node pkg="topic_tools" type="throttle" name = "odom_throttle" output="screen" args="messages /robot0/odom 10.0">
     </node>
-    
-    <!-- Terrain server -->
+     -->
+    <!-- Terrain server 
     <node pkg="scenario_runner" type="terrain_server.py" name="terrain_server" output="screen">
       <param name="terrain" value="$(find scenario_runner)/resources/h0380_0001_orthoimage_sq_down.jpg"/>
     </node>
+    -->
     
     <!-- UI -->
     <node pkg="human_tasks" type="fullscreen_tasks.py" name="experiment_ui" output="screen">
@@ -30,11 +33,12 @@
 
     <!-- Control node -->
     <node pkg="human_tasks" type="controlNode.py" name="control_node" output="screen">
-      <param name="scenarios" value="$(find human_tasks)/config/scenarios.csv"/>
+      <param name="scenarios" value="$(find human_tasks)/config/scenarios_two.csv"/>
       <param name="robotURDFFile" value="$(find human_tasks)/config/husky_cam_laser.xacro"/>
       <param name="navTasks" value="$(find human_tasks)/config/navtasks_gazebo.csv"/>
       <param name="graspTasks" value="$(find human_tasks)/config/grasptasks.csv"/>
       <param name="handlingTasks" value="$(find human_tasks)/config/handlingtasks.csv"/>
+      <param name="pathTasks" value="$(find human_tasks)/config/path_hazards.csv"/>
       <param name="subjectParams" value="$(find human_tasks)/config/subject_params.pkl"/>
       
     </node>
@@ -44,7 +48,7 @@
     </group>
 
     <!-- Bag file monitoring -->
-    <node pkg="human_tasks" type="file_watcher.py" name="bag_watcher" output="screen" args=".'>
+    <node pkg="human_tasks" type="file_watcher.py" name="bag_watcher" output="screen" args=".">
     	  <remap from="file_updates" to="/bag_updates"/>
     </node>
 

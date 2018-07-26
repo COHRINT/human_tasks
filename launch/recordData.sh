@@ -9,6 +9,7 @@ rosbag record \
        /control_node/grasp_task \
        /control_node/nav_task \
        /control_node/sample_task \
+       /control_node/path_task \
        /control_node/workload_task \
        /experiment_ui/attention \
        /experiment_ui/feedback \

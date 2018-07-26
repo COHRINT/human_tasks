@@ -35,6 +35,8 @@ class ControlNode(object):
         #Grab files from the rospy param system
         scenarioFile = rospy.get_param('~scenarios', None)
         navTaskFile = rospy.get_param('~navTasks', None)
+        pathPlanTaskFile = rospy.get_param('~pathTasks', None)
+        
         graspTaskFile = rospy.get_param('~graspTasks', None)
         handlingTaskFile = rospy.get_param('~handlingTasks', None)
 
@@ -42,6 +44,7 @@ class ControlNode(object):
         
         #Fire up a publisher for each task type:
         self.navPub = rospy.Publisher('~nav_task', Navigation, queue_size=10)
+        self.pathPub = rospy.Publisher('~path_task', PathPlanning, queue_size=10)
         self.graspPub = rospy.Publisher('~grasp_task', Grasping, queue_size=10)
         self.handlingPub = rospy.Publisher('~sample_task', SampleHandling, queue_size=10)
         self.workloadPub = rospy.Publisher('~workload_task', Workload, queue_size=10)
@@ -52,6 +55,7 @@ class ControlNode(object):
         #For each task type, each row represents a scenario that can be run
         #So for example, for grasping, each row in the polygons.csv file is a scenario
         #The control node is where the assignment of easy/medium/hard is made and passed onto the score reporting
+        self.ppTasks = self.loadTaskFile(pathPlanTaskFile)
         self.navTasks = self.loadTaskFile(navTaskFile)
         self.graspTasks = self.loadTaskFile(graspTaskFile)
         self.handlingTasks = self.loadTaskFile(handlingTaskFile)
@@ -147,6 +151,61 @@ class ControlNode(object):
             msg.difficulty = int(self.navTasks[index][0])
             
             self.navPub.publish(msg)
+            
+            return 
+        except rospy.ServiceException, e:
+            print "Service call failed: %s"%e
+
+            
+    def runPathPlanTask(self, index):
+        #Make the service call for the scenario with index
+        try:
+            pp_task = rospy.ServiceProxy(self.experimentNS+'/tasks/path_plan_task', RunPathPlanningTask)
+            req = RunPathPlanningTaskRequest()
+            print 'Running path plan task:', index
+            print self.ppTasks[index]
+            #Parse the CSV file of path plan tasks
+            #Elements:
+            #0: difficulty
+            #1: number of hazards
+            #for each hazard:
+            #0,1: x/y of mean
+            #2,3,4: covariance entries, 00, 01, 11
+
+            #startx, starty
+            #endx, endy
+            req.scenario.difficulty = int(self.ppTasks[index][0])
+            numHazards = int(self.ppTasks[index][1])
+            for i in range(2, 2+(numHazards*5), 5):
+                mean = Point()
+                mean.x = float(self.ppTasks[index][i])
+                mean.y = float(self.ppTasks[index][i+1])
+                req.scenario.means.append(mean)
+
+                cov = Covariance2D()
+                cov.covariance[0] = float(self.ppTasks[index][i+2])
+                cov.covariance[1] = float(self.ppTasks[index][i+3])
+                cov.covariance[2] = float(self.ppTasks[index][i+3])
+                cov.covariance[3] = float(self.ppTasks[index][i+4])
+                req.scenario.covs.append(cov)
+
+            #Fill in the start/goal:
+            req.scenario.start.position.x = float(self.ppTasks[index][2+(numHazards*5)])
+            req.scenario.start.position.y = float(self.ppTasks[index][2+(numHazards*5) + 1])
+            req.scenario.goal.position.x = float(self.ppTasks[index][2+(numHazards*5) + 2])
+            req.scenario.goal.position.y = float(self.ppTasks[index][2+(numHazards*5) + 3])
+
+            
+            #print req
+            
+            resp = pp_task(req)
+
+            #Publish a report for this subtask
+            msg = copy.deepcopy(resp.report)
+            #Add the difficulty
+            msg.difficulty = int(self.ppTasks[index][0])
+            
+            self.pathPub.publish(msg)
             
             return 
         except rospy.ServiceException, e:
@@ -285,7 +344,7 @@ class ControlNode(object):
         
         #Enable the task execution UI:
         self.setUIState('ExperimentView', True)
-
+        
         lastBlockIndex = -1
         for index, scenario  in enumerate(self.scenarios):
             #Set the workload / attention params (if needed)
@@ -302,7 +361,7 @@ class ControlNode(object):
             self.setUIProgress(index, len(self.scenarios))
             #first parameter is the subtask type, second is the scenario index of that subtask
             if int(scenario[0]) == TaskType.Navigation.value:
-                self.runNavTask(int(scenario[1]))
+                self.runPathPlanTask(int(scenario[1])) #recycle the nav task enum
             elif int(scenario[0]) == TaskType.Grasping.value:
                 self.runGraspTask(int(scenario[1]))
             elif int(scenario[0]) == TaskType.Handling.value:
@@ -385,6 +444,7 @@ def getRobotURDF(robotName, robotXacro):
 def main():
     rospy.init_node('control_node')
     #Instantiate a master gazebo interface:
+    '''
     gzInt = GazeboInterface()
    
     gzInt.resumePhysics()
@@ -397,6 +457,7 @@ def main():
     rospy.sleep(10.0)
         
     gzInt.pausePhysics()
+    '''
     
     #Fire up the master control node to run our scenarios
     ctl = ControlNode()

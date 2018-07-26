@@ -55,7 +55,7 @@ from human_tasks.msg import *
 #Main window area: Contains a QGraphicsView and some buttons
 class PathPlanningWidget(QWidget):
     scoringComplete = pyqtSignal()
-    reinitialize = pyqtSignal(float, float)
+    reinitialize = pyqtSignal(PathPlanning)
     onTelemetry = pyqtSignal(str, str)
     
     def __init__(self):
@@ -64,18 +64,31 @@ class PathPlanningWidget(QWidget):
         #Create the layout once
         self.initUI()
         
-    def initialize(self, difficulty, means, covs, startPos, endPos):
+    def initialize(self, msg):
+        #difficulty, means, covs, startPos, endPos):
         print 'Initializing UI'
-        self.difficulty = difficulty
-        
+        self.difficulty = msg.difficulty
+
+        #Rehydrate the list of means and the covariance matrices
+        means = list()
+        for pnt in msg.means:
+            means.append((pnt.x, pnt.y))
+
+        covs = list()
+        #list of numpy 2x2 matrices
+        for covSrc in msg.covs:
+            covs.append(np.reshape(covSrc.covariance, (2,2)))
+            
         self.hazards = zip(means, covs)
-        self.startPos = startPos
-        self.endPos = endPos
+        self.startPos = (msg.start.position.x, msg.start.position.y)
+        self.endPos = (msg.goal.position.x, msg.goal.position.y)
 
         self.setVisible(True)
         self.planView.setHazards(means, covs)
-        self.planView.setStart(startPos)
-        self.planView.setEnd(endPos)
+        self.planView.setStart((int(msg.start.position.x),
+                                int(msg.start.position.y)))
+        self.planView.setEnd((int(msg.goal.position.x),
+                              int(msg.goal.position.y)))
         self.planView.setDisabled(False)
         
         self.score = 0.0
@@ -117,7 +130,26 @@ class PathPlanningWidget(QWidget):
         startPos = (int(startPos[0]), int(startPos[1]))
         endPos = positions[1]
         endPos = (int(endPos[0]), int(endPos[1]))
-        self.initialize(difficulty, means, covs, startPos, endPos)
+
+        msg = PathPlanning()
+        msg.difficulty = difficulty
+        for pnt in means:
+            newPoint = Point()
+            newPoint.x = pnt[0]
+            newPoint.y = pnt[1]
+            msg.means.append(newPoint)
+
+        for cov in covs:
+            covFlat = Covariance2D()
+            covFlat.covariance = cov.toArray()
+            msg.covs.append(covFlat)
+
+        msg.start.x = startPos[0]
+        msg.start.y = startPos[1]
+        msg.goal.x = endPos[0]
+        msg.goal.y = endPos[1]
+        
+        self.initialize(msg)
 
     def initUI(self):
 
@@ -211,15 +243,12 @@ class PathPlanningWidget(QWidget):
             self.btnDone.setText('Get Score')
             #self.parent().close()
 
-
-            #REMOVE FOR RELEASE
-            self.finalTime = None
     def getScore(self):
         print 'Calculating score'
         self.score = self.planView.getScore()
         self.finalTime = rospy.Time.now()
 
-        #self.planView.setDisabled(True)
+        self.planView.setDisabled(True)
         self.btnDone.setFocus(Qt.TabFocusReason)
 
         
@@ -591,6 +620,8 @@ def main():
         
 	planApp = PathPlanningWidget()
         difficulty = TaskDifficulty.Easy
+        #Make a basic ROS message to feed this thing
+        
         planApp.initialize(difficulty, means, covs, startPos, endPos)
         mainWindow = QMainWindow()
         mainWindow.setWindowTitle('Path Planning')

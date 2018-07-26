@@ -47,7 +47,8 @@ def main():
 
     handlingTasks = list(range(0, numHandling))
     availableTasks = [navTasks, graspTasks, handlingTasks] #order by the enum value
- 
+
+
     for index in range(0, numSamples):
 
         #Assemble the potential tasks we have left:
@@ -68,8 +69,13 @@ def main():
         #there is randomness already built into the scenario definitions...
         
         selIndex = np.random.choice(availableTasks[task.value])
+        #index when you just want linear iteration
+        
+        
         availableTasks[task.value].remove(selIndex) #sample without replacement
 
+        #pdb.set_trace()
+            
         sampRow = (task.value, selIndex)
         writer.writerow(sampRow)
 
